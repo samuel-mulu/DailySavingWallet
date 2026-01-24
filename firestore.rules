@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      // Role lives in Firestore so we can keep this app simple (no custom claims).
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (role() == 'admin' || role() == 'superadmin');
+    }
+
+    // ---- User profiles (used by AuthGate routing + RBAC) ----
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+
+      // Allow users to create their own profile, but never self-escalate roles.
+      // (UserRepo creates missing profiles client-side on first login.)
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == 'customer';
+
+      // Admins can manage profiles (e.g., promote role, disable accounts).
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- Wallet snapshot + ledger (read-only from client; Functions own writes) ----
+    match /wallets/{customerId} {
+      allow read: if isSignedIn() && (request.auth.uid == customerId || isAdmin());
+      allow write: if false; // Money changes must come from Cloud Functions.
+
+      match /ledger/{txId} {
+        allow read: if isSignedIn() && (request.auth.uid == customerId || isAdmin());
+        allow write: if false; // Append-only ledger is also owned by Functions.
+      }
+    }
+
+    // ---- Withdraw requests (Functions create + update; clients only read) ----
+    match /withdrawRequests/{requestId} {
+      allow read: if isSignedIn()
+        && (resource.data.customerId == request.auth.uid || isAdmin());
+
+      // Safer: only Cloud Functions (Admin SDK) can create/update these.
+      allow write: if false;
+    }
+  }
+}
+

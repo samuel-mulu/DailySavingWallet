@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "965918215895",
+    "project_id": "temesgen-2a9fe",
+    "storage_bucket": "temesgen-2a9fe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:965918215895:android:97146c775f720c7d0fea92",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjWoGibsOvlxFA7QqmbqZJA1nLEiqO7vk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:965918215895:android:a83348ae093200fc0fea92",
+        "android_client_info": {
+          "package_name": "daily.saving"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjWoGibsOvlxFA7QqmbqZJA1nLEiqO7vk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,31 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "temesgen-2a9fe",
+          "appId": "1:965918215895:android:97146c775f720c7d0fea92",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "temesgen-2a9fe",
+          "configurations": {
+            "android": "1:965918215895:android:97146c775f720c7d0fea92",
+            "ios": "1:965918215895:ios:c78b2a6b25458eed0fea92",
+            "macos": "1:965918215895:ios:c78b2a6b25458eed0fea92",
+            "web": "1:965918215895:web:042707b560e4782c0fea92",
+            "windows": "1:965918215895:web:75fb187c086cc5e20fea92"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "functions": {
+    "source": "functions"
+  }
+}
