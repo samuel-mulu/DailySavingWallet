@@ -22,7 +22,10 @@ class TransactionDetailsSheet extends StatelessWidget {
             _row('Type', tx.type),
             _row('Direction', tx.direction),
             _row('Amount', MoneyEtb.formatCents(tx.amountCents)),
-            _row('Created', tx.createdAt?.toString() ?? '—'),
+            if (tx.balanceAfterCents != null)
+              _row('Balance After', MoneyEtb.formatCents(tx.balanceAfterCents!)),
+            _row('Transaction Date', _formatDate(tx.txDate)),
+            _row('Created At', _formatDateTime(tx.createdAt)),
             _row('By', tx.createdByUid.isEmpty ? '—' : tx.createdByUid),
             if (meta.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -48,6 +51,16 @@ class TransactionDetailsSheet extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return '—';
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateTime(DateTime? date) {
+    if (date == null) return '—';
+    return '${_formatDate(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 }
 

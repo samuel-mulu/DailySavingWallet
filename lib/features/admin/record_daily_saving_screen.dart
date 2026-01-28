@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/money/money.dart';
+import '../../core/ui/date_selector.dart';
 import '../../data/wallet/wallet_repo.dart';
 
 class RecordDailySavingScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
   final _amountCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
   final _uuid = const Uuid();
+  DateTime _selectedDate = DateTime.now();
 
   bool _busy = false;
   String? _error;
@@ -40,10 +42,12 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
 
       final cents = MoneyEtb.parseEtbToCents(_amountCtrl.text);
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
+      final txDateMillis = dateToTxMillis(_selectedDate);
 
       await WalletRepo().recordDailySaving(
         customerId: customerId,
         amountCents: cents,
+        txDateMillis: txDateMillis,
         note: note,
         idempotencyKey: _uuid.v4(),
       );
@@ -73,7 +77,13 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
               controller: _customerIdCtrl,
               decoration: const InputDecoration(labelText: 'Customer ID (uid)'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+            DateSelector(
+              selectedDate: _selectedDate,
+              onDateChanged: (date) => setState(() => _selectedDate = date),
+              showQuickSelect: true,
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: _amountCtrl,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),

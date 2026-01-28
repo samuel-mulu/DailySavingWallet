@@ -1,0 +1,30 @@
+{
+    "indexes": [
+      {
+        "collectionId": "customers",
+        "queryScope": "COLLECTION",
+        "fields": [
+          { "fieldPath": "status", "order": "ASCENDING" },
+          { "fieldPath": "createdAt", "order": "DESCENDING" }
+        ]
+      },
+      {
+        "collectionId": "customers",
+        "queryScope": "COLLECTION",
+        "fields": [
+          { "fieldPath": "status", "order": "ASCENDING" },
+          { "fieldPath": "fullName", "order": "ASCENDING" }
+        ]
+      },
+      {
+        "collectionId": "withdrawRequests",
+        "queryScope": "COLLECTION",
+        "fields": [
+          { "fieldPath": "status", "order": "ASCENDING" },
+          { "fieldPath": "createdAt", "order": "DESCENDING" }
+        ]
+      }
+    ],
+    "fieldOverrides": []
+  }
+  

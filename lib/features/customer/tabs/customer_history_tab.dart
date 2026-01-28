@@ -23,13 +23,14 @@ class _CustomerHistoryTabState extends State<CustomerHistoryTab> {
   bool _loadingMore = false;
   bool _hasMore = true;
   String? _error;
+  String? _customerId;
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
   @override
   void initState() {
     super.initState();
-    _loadFirstPage();
+    _initCustomerId();
     _scroll.addListener(_onScroll);
   }
 
@@ -37,6 +38,17 @@ class _CustomerHistoryTabState extends State<CustomerHistoryTab> {
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _initCustomerId() async {
+    final doc = await FirebaseFirestore.instance.doc('users/$_uid').get();
+    final customerId = doc.data()?['customerId'] as String?;
+    if (mounted) {
+      setState(() => _customerId = customerId);
+      if (customerId != null) {
+        _loadFirstPage();
+      }
+    }
   }
 
   void _onScroll() {
@@ -47,6 +59,8 @@ class _CustomerHistoryTabState extends State<CustomerHistoryTab> {
   }
 
   Future<void> _loadFirstPage() async {
+    if (_customerId == null) return;
+    
     setState(() {
       _loading = true;
       _error = null;
@@ -56,7 +70,7 @@ class _CustomerHistoryTabState extends State<CustomerHistoryTab> {
     });
 
     try {
-      final page = await _repo.fetchLedgerPage(_uid);
+      final page = await _repo.fetchLedgerPage(_customerId!);
       setState(() {
         _ledger.addAll(page.items);
         _lastDoc = page.lastDoc;
@@ -70,12 +84,13 @@ class _CustomerHistoryTabState extends State<CustomerHistoryTab> {
   }
 
   Future<void> _loadMore() async {
+    if (_customerId == null) return;
     final startAfter = _lastDoc;
     if (startAfter == null) return;
 
     setState(() => _loadingMore = true);
     try {
-      final page = await _repo.fetchLedgerPage(_uid, startAfter: startAfter);
+      final page = await _repo.fetchLedgerPage(_customerId!, startAfter: startAfter);
       setState(() {
         _ledger.addAll(page.items);
         _lastDoc = page.lastDoc;

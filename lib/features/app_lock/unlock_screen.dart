@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
 import '../../core/security/app_lock_service.dart';
+import '../../core/ui/branded_header.dart';
+import '../../core/ui/pin_input_widget.dart';
 
 class UnlockScreen extends StatefulWidget {
   final String uid;
@@ -15,10 +17,9 @@ class UnlockScreen extends StatefulWidget {
 
 class _UnlockScreenState extends State<UnlockScreen> {
   final _auth = LocalAuthentication();
-  final _pinCtrl = TextEditingController();
   final _lock = AppLockService();
+  final _pinController = PinInputWidgetController();
 
-  bool _busy = false;
   String? _error;
 
   int _failCount = 0;
@@ -28,12 +29,6 @@ class _UnlockScreenState extends State<UnlockScreen> {
   void initState() {
     super.initState();
     _tryBiometric();
-  }
-
-  @override
-  void dispose() {
-    _pinCtrl.dispose();
-    super.dispose();
   }
 
   bool get _isTempLocked {
@@ -68,20 +63,20 @@ class _UnlockScreenState extends State<UnlockScreen> {
     widget.onUnlocked();
   }
 
-  Future<void> _verifyPin() async {
+  Future<void> _verifyPin(String pin) async {
     if (_isTempLocked) {
       setState(() => _error = 'Too many attempts. Try again later.');
+      _pinController.clearPin();
       return;
     }
 
-    final pin = _pinCtrl.text.trim();
     if (pin.length != 4 || int.tryParse(pin) == null) {
       setState(() => _error = 'Enter a valid 4-digit PIN.');
+      _pinController.clearPin();
       return;
     }
 
     setState(() {
-      _busy = true;
       _error = null;
     });
 
@@ -95,68 +90,82 @@ class _UnlockScreenState extends State<UnlockScreen> {
     }
 
     _failCount += 1;
-    _pinCtrl.clear();
+    _pinController.clearPin();
 
     if (_failCount >= 5) {
       _lockedUntil = DateTime.now().add(const Duration(seconds: 30));
       _failCount = 0;
       setState(() {
-        _busy = false;
         _error = 'Too many attempts. Locked for 30 seconds.';
       });
       return;
     }
 
     setState(() {
-      _busy = false;
-      _error = 'Incorrect PIN. Try again.';
+      _error = 'Incorrect PIN. ${5 - _failCount} attempts remaining.';
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final lockMsg = _isTempLocked ? 'Locked… wait a moment' : 'Enter PIN';
+    final lockMsg = _isTempLocked
+        ? 'Locked… wait a moment'
+        : 'Unlock Your Wallet';
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Unlock'),
-        actions: [
-          if (!kIsWeb)
-            IconButton(
-              tooltip: 'Use fingerprint',
-              onPressed: _busy ? null : _tryBiometric,
-              icon: const Icon(Icons.fingerprint),
-            ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      body: SafeArea(
         child: Column(
           children: [
-            Text(lockMsg),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _pinCtrl,
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 4,
-              decoration: const InputDecoration(labelText: 'PIN'),
-              onSubmitted: (_) => _verifyPin(),
-            ),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _verifyPin,
-                child: _busy
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Unlock'),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 20),
+                    
+                    // Purple Branding Header
+                    const BrandedHeader(
+                      title: 'Daily Saving',
+                      height: 150,
+                    ),
+                    
+                    const SizedBox(height: 40),
+                    
+                    // Unlock Heading
+                    Text(
+                      lockMsg,
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2D2D2D),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Enter your 4-digit PIN',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: const Color(0xFF6B7280),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    
+                    const SizedBox(height: 48),
+                    
+                    // PIN Input Widget with Keypad
+                    PinInputWidget(
+                      controller: _pinController,
+                      onPinComplete: _verifyPin,
+                      showBiometric: !kIsWeb,
+                      onBiometricPressed: _tryBiometric,
+                      errorMessage: _error,
+                    ),
+                    
+                    const SizedBox(height: 40),
+                  ],
+                ),
               ),
             ),
           ],

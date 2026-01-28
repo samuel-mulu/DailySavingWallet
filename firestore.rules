@@ -30,22 +30,47 @@ service cloud.firestore {
 
     // ---- Wallet snapshot + ledger (read-only from client; Functions own writes) ----
     match /wallets/{customerId} {
-      allow read: if isSignedIn() && (request.auth.uid == customerId || isAdmin());
+      function isCustomerOwner() {
+        // Check if current user's customerId matches
+        return isSignedIn() && 
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.customerId == customerId;
+      }
+      
+      allow read: if isCustomerOwner() || isAdmin();
       allow write: if false; // Money changes must come from Cloud Functions.
 
       match /ledger/{txId} {
-        allow read: if isSignedIn() && (request.auth.uid == customerId || isAdmin());
+        allow read: if isCustomerOwner() || isAdmin();
         allow write: if false; // Append-only ledger is also owned by Functions.
       }
     }
 
     // ---- Withdraw requests (Functions create + update; clients only read) ----
     match /withdrawRequests/{requestId} {
-      allow read: if isSignedIn()
-        && (resource.data.customerId == request.auth.uid || isAdmin());
+      function isRequestOwner() {
+        // Check if the request's customerId matches the user's customerId
+        return isSignedIn() && 
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.customerId == resource.data.customerId;
+      }
+      
+      allow read: if isRequestOwner() || isAdmin();
 
       // Safer: only Cloud Functions (Admin SDK) can create/update these.
       allow write: if false;
+    }
+
+    // ---- Customers (Admin-only) ----
+    match /customers/{customerId} {
+      // Only admins can read customer records
+      allow read: if isAdmin();
+      
+      // Prefer Cloud Functions for writes, but allow admins to update if needed
+      allow write: if isAdmin();
+    }
+
+    // ---- Idempotency keys (internal, managed by Cloud Functions) ----
+    match /idempotency/{uid}/keys/{keyId} {
+      allow read, write: if false; // Only Cloud Functions can manage these
     }
   }
 }

@@ -9,7 +9,7 @@ class WalletRepo {
 
   WalletRepo({FirebaseFirestore? db, FirebaseFunctions? functions})
       : _db = db ?? FirebaseFirestore.instance,
-        _functions = functions ?? FirebaseFunctions.instance;
+        _functions = functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> streamWalletDoc(String customerId) {
     return _db.doc('wallets/$customerId').snapshots();
@@ -31,7 +31,7 @@ class WalletRepo {
         .collection('wallets')
         .doc(customerId)
         .collection('ledger')
-        .orderBy('createdAt', descending: true)
+        .orderBy('txDate', descending: true)
         .limit(limit);
 
     if (startAfter != null) {
@@ -90,6 +90,7 @@ class WalletRepo {
   Future<void> recordDailySaving({
     required String customerId,
     required int amountCents,
+    required int txDateMillis,
     String? note,
     String? idempotencyKey,
   }) async {
@@ -97,10 +98,43 @@ class WalletRepo {
     await callable.call(<String, dynamic>{
       'customerId': customerId,
       'amountCents': amountCents,
+      'txDateMillis': txDateMillis,
       if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
         'idempotencyKey': idempotencyKey.trim(),
     });
+  }
+
+  Future<void> recordDeposit({
+    required String customerId,
+    required int amountCents,
+    int? txDateMillis,
+    String? note,
+    String? idempotencyKey,
+  }) async {
+    final callable = _functions.httpsCallable('recordDeposit');
+    await callable.call(<String, dynamic>{
+      'customerId': customerId,
+      'amountCents': amountCents,
+      if (txDateMillis != null) 'txDateMillis': txDateMillis,
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
+        'idempotencyKey': idempotencyKey.trim(),
+    });
+  }
+
+  Future<String> requestWithdrawForCustomer({
+    required String customerId,
+    required int amountCents,
+    required String reason,
+  }) async {
+    final callable = _functions.httpsCallable('requestWithdraw');
+    final result = await callable.call(<String, dynamic>{
+      'customerId': customerId,
+      'amountCents': amountCents,
+      'reason': reason,
+    });
+    return result.data['requestId'] as String;
   }
 
   Future<void> approveWithdraw(String requestId, {String? idempotencyKey}) async {

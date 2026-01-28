@@ -27,7 +27,9 @@ class LedgerTx {
   final String type; // DAILY_PAYMENT|DEPOSIT|WITHDRAW_REQUEST|WITHDRAW_APPROVE|WITHDRAW_REJECT|ADJUSTMENT
   final String direction; // IN|OUT
   final int amountCents;
-  final DateTime? createdAt;
+  final int? balanceAfterCents;
+  final DateTime? txDate;     // Business date
+  final DateTime? createdAt;  // Audit timestamp
   final String createdByUid;
   final Map<String, dynamic>? meta;
 
@@ -36,10 +38,15 @@ class LedgerTx {
     required this.type,
     required this.direction,
     required this.amountCents,
+    required this.balanceAfterCents,
+    required this.txDate,
     required this.createdAt,
     required this.createdByUid,
     required this.meta,
   });
+
+  /// Returns txDate if available, otherwise falls back to createdAt
+  DateTime? get displayDate => txDate ?? createdAt;
 
   static LedgerTx fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
@@ -48,6 +55,8 @@ class LedgerTx {
       type: (d['type'] as String?) ?? 'UNKNOWN',
       direction: (d['direction'] as String?) ?? 'IN',
       amountCents: (d['amountCents'] as num?)?.toInt() ?? 0,
+      balanceAfterCents: (d['balanceAfterCents'] as num?)?.toInt(),
+      txDate: (d['txDate'] as Timestamp?)?.toDate(),
       createdAt: (d['createdAt'] as Timestamp?)?.toDate(),
       createdByUid: (d['createdByUid'] as String?) ?? '',
       meta: d['meta'] is Map ? Map<String, dynamic>.from(d['meta'] as Map) : null,

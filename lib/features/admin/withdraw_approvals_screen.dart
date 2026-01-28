@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/money/money.dart';
+import '../../data/customers/customer_repo.dart';
 import '../../data/wallet/models.dart';
 import '../../data/wallet/wallet_repo.dart';
 
@@ -30,24 +31,91 @@ class _WithdrawApprovalsScreenState extends State<WithdrawApprovalsScreen> {
   }
 
   Future<bool> _confirmApprove(BuildContext context, WithdrawRequest r) async {
+    // Fetch customer and wallet info
+    final customer = await CustomerRepo().getCustomer(r.customerId);
+    final walletSnap = await WalletRepo().streamWallet(r.customerId).first;
+    
+    final currentBalance = walletSnap?.balanceCents ?? 0;
+    final afterBalance = currentBalance - r.amountCents;
+    final willBeNegative = afterBalance < 0;
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Approve withdraw'),
+        title: const Text('Approve Withdraw'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Customer: ${r.customerId}'),
-            const SizedBox(height: 8),
+            if (customer != null) ...[
+              Text(
+                customer.fullName,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              Text(customer.companyName),
+              const Divider(height: 16),
+            ],
             Text('Amount: ${MoneyEtb.formatCents(r.amountCents)}'),
             const SizedBox(height: 8),
             Text('Reason: ${r.reason}'),
+            const SizedBox(height: 8),
+            Text('Current Balance: ${MoneyEtb.formatCents(currentBalance)}'),
+            Text(
+              'After Balance: ${MoneyEtb.formatCents(afterBalance)}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: willBeNegative ? Colors.red : Colors.green,
+              ),
+            ),
+            if (willBeNegative) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.warning, color: Colors.orange, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Will create debt',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    if (customer != null && customer.creditLimitCents > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Credit Limit: ${MoneyEtb.formatCents(customer.creditLimitCents)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 4),
+                      const Text(
+                        'No credit limit (unlimited)',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Approve')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: willBeNegative
+                ? FilledButton.styleFrom(backgroundColor: Colors.orange)
+                : null,
+            child: const Text('Approve'),
+          ),
         ],
       ),
     );
@@ -135,36 +203,91 @@ class _WithdrawApprovalsScreenState extends State<WithdrawApprovalsScreen> {
               final r = items[i];
               final busy = _isBusy(r.id);
               return Card(
+                elevation: 3,
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              MoneyEtb.formatCents(r.amountCents),
-                              style: Theme.of(context).textTheme.titleLarge,
+                            child: FutureBuilder(
+                              future: CustomerRepo().getCustomer(r.customerId),
+                              builder: (context, snap) {
+                                final customer = snap.data;
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      customer?.fullName ?? 'Loading...',
+                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    if (customer != null) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        customer.companyName,
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                              color: Theme.of(context).colorScheme.secondary,
+                                            ),
+                                      ),
+                                    ],
+                                  ],
+                                );
+                              },
                             ),
                           ),
-                          if (busy)
-                            const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                MoneyEtb.formatCents(r.amountCents),
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).colorScheme.error,
+                                    ),
+                              ),
+                              if (busy)
+                                const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                            ],
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 4),
-                      Text('Customer: ${r.customerId}'),
-                      const SizedBox(height: 4),
-                      Text('Reason: ${r.reason}'),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.message_outlined,
+                              size: 16,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                r.reason,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
-                            child: FilledButton(
+                            child: FilledButton.icon(
                               onPressed: busy
                                   ? null
                                   : () async {
@@ -182,12 +305,16 @@ class _WithdrawApprovalsScreenState extends State<WithdrawApprovalsScreen> {
                                         if (mounted) _setBusy(r.id, false);
                                       }
                                     },
-                              child: const Text('Approve'),
+                              icon: const Icon(Icons.check),
+                              label: const Text('Approve'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: OutlinedButton(
+                            child: OutlinedButton.icon(
                               onPressed: busy
                                   ? null
                                   : () async {
@@ -208,7 +335,8 @@ class _WithdrawApprovalsScreenState extends State<WithdrawApprovalsScreen> {
                                         if (mounted) _setBusy(r.id, false);
                                       }
                                     },
-                              child: const Text('Reject'),
+                              icon: const Icon(Icons.close),
+                              label: const Text('Reject'),
                             ),
                           ),
                         ],
