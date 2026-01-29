@@ -339,203 +339,366 @@ export const recordDailySaving = functions.https.onCall(
   },
 );
 
-export const recordDeposit = functions.https.onCall(
+export const recordDepositV2 = functions.https.onCall(
   async (data: any, context: functions.https.CallableContext) => {
-  const callerUid = requireAuth(context);
-  await requireAdmin(callerUid);
+    console.log('🟢 [recordDeposit] Function called');
+    
+    try {
+      // 1. Validate authentication
+      console.log('   Step 1: Checking authentication...');
+      const callerUid = requireAuth(context);
+      console.log(`   ✓ Authenticated as uid: ${callerUid}`);
 
-  const customerId = requireString(data?.customerId, 'customerId', { max: 128 });
-  const amountCents = requireIntCents(data?.amountCents, 'amountCents');
-  const txDate = optionalTimestamp(data?.txDateMillis);
-  const note = data?.note == null ? undefined : requireString(data.note, 'note', { max: 500 });
-  const idempotencyKey =
-    data?.idempotencyKey == null ? undefined : requireString(data.idempotencyKey, 'idempotencyKey', { max: 128 });
-
-  let idempotent = false;
-  await db.runTransaction(async (tx: Tx) => {
-    if (idempotencyKey != null) {
-      const iRef = idempotencyRef(callerUid, idempotencyKey);
-      const iSnap = await tx.get(iRef);
-      if (iSnap.exists) {
-        idempotent = true;
-        return;
+      // 2. Validate required inputs
+      console.log('   Step 2: Validating inputs...');
+      if (!data || typeof data !== 'object') {
+        throw new functions.https.HttpsError('invalid-argument', 'Request data must be an object.');
       }
-      tx.set(iRef, { createdAt: FieldValue.serverTimestamp() });
+
+      console.log(`   Received data:`, JSON.stringify({
+        customerId: data?.customerId,
+        amountCents: data?.amountCents,
+        txDateMillis: data?.txDateMillis,
+        hasNote: !!data?.note,
+        hasIdempotencyKey: !!data?.idempotencyKey,
+      }));
+
+      const customerId = requireString(data?.customerId, 'customerId', { max: 128 });
+      const amountCents = requireIntCents(data?.amountCents, 'amountCents');
+      const txDateMillis = data?.txDateMillis;
+      const note = data?.note == null ? undefined : requireString(data.note, 'note', { max: 500 });
+      const idempotencyKey =
+        data?.idempotencyKey == null ? undefined : requireString(data.idempotencyKey, 'idempotencyKey', { max: 128 });
+
+      // 3. Verify role is admin or superadmin
+      console.log('   Step 3: Checking user role...');
+      await requireAdmin(callerUid);
+      console.log('   ✓ Role authorized');
+
+      const txDate = optionalTimestamp(txDateMillis);
+
+      // 4. Execute transaction
+      console.log('   Step 4: Executing Firestore transaction...');
+      let idempotent = false;
+      await db.runTransaction(async (tx: Tx) => {
+        // === ALL READS FIRST ===
+        
+        // Read 1: Check idempotency
+        let iSnap = null;
+        if (idempotencyKey != null) {
+          const iRef = idempotencyRef(callerUid, idempotencyKey);
+          iSnap = await tx.get(iRef);
+          if (iSnap.exists) {
+            console.log('   ⚠️ Idempotent request detected');
+            idempotent = true;
+            return;
+          }
+        }
+
+        // Read 2: Get current wallet balance
+        const wRef = walletRef(customerId);
+        const wSnap = await tx.get(wRef);
+
+        // === ALL READS COMPLETE, NOW WRITES ===
+        
+        const current = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
+        const next = current + amountCents;
+        console.log(`   Wallet: current=${current}, adding=${amountCents}, new=${next}`);
+
+        // Write 1: Idempotency key
+        if (idempotencyKey != null && iSnap && !iSnap.exists) {
+          const iRef = idempotencyRef(callerUid, idempotencyKey);
+          tx.set(iRef, { createdAt: FieldValue.serverTimestamp() });
+        }
+
+        // Write 2: Update wallet
+        if (!wSnap.exists) {
+          console.log('   Creating new wallet');
+          tx.set(wRef, { balanceCents: next, updatedAt: FieldValue.serverTimestamp() });
+        } else {
+          console.log('   Updating existing wallet');
+          tx.set(wRef, { balanceCents: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
+
+        // Write 3: Create ledger entry
+        const lRef = ledgerRef(customerId);
+        const ledgerData = {
+          type: 'DEPOSIT',
+          direction: 'IN',
+          amountCents,
+          balanceAfterCents: next,
+          txDate,
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUid: callerUid,
+          ...(note ? { meta: { note } } : {}),
+        };
+        console.log('   Writing ledger entry');
+        tx.set(lRef, ledgerData);
+      });
+
+      console.log('   ✓ Transaction completed successfully');
+
+      // 5. Return success payload
+      console.log('✅ [recordDeposit] Success');
+      return { ok: true, idempotent };
+    } catch (error: any) {
+      console.error('❌ [recordDeposit] Error occurred:');
+      console.error('   Error message:', error.message);
+      
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      throw new functions.https.HttpsError(
+        'internal',
+        `Failed to record deposit: ${error.message || 'Unknown error'}`,
+      );
     }
-
-    const wRef = walletRef(customerId);
-    const wSnap = await tx.get(wRef);
-
-    const current = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
-    const next = current + amountCents;
-
-    if (!wSnap.exists) {
-      tx.set(wRef, { balanceCents: next, updatedAt: FieldValue.serverTimestamp() });
-    } else {
-      tx.set(wRef, { balanceCents: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    }
-
-    const lRef = ledgerRef(customerId);
-    tx.set(lRef, {
-      type: 'DEPOSIT',
-      direction: 'IN',
-      amountCents,
-      balanceAfterCents: next,
-      txDate,
-      createdAt: FieldValue.serverTimestamp(),
-      createdByUid: callerUid,
-      ...(note ? { meta: { note } } : {}),
-    });
-  });
-
-    return { ok: true, idempotent };
   },
 );
 
 export const requestWithdraw = functions.https.onCall(
   async (data: any, context: functions.https.CallableContext) => {
-  const callerUid = requireAuth(context);
+    console.log('🟢 [requestWithdraw] Function called');
+    try {
+      const callerUid = requireAuth(context);
+      const amountCents = requireIntCents(data?.amountCents, 'amountCents');
+      const reason = requireString(data?.reason, 'reason', { max: 500 });
+      
+      const reqRef = withdrawReqRef();
+      const requestId = reqRef.id;
 
-  const amountCents = requireIntCents(data?.amountCents, 'amountCents');
-  const reason = requireString(data?.reason, 'reason', { max: 500 });
-  
-  // Support admin creating withdraw request for a customer
-  let customerId: string;
-  if (data?.customerId != null) {
-    // Admin creating on behalf of customer
-    await requireAdmin(callerUid);
-    customerId = requireString(data.customerId, 'customerId', { max: 128 });
-  } else {
-    // Customer creating for themselves
-    customerId = callerUid;
-  }
+      await db.runTransaction(async (tx: Tx) => {
+        // 1. Determine and Validate Customer ID
+        let customerId: string;
+        
+        const userRef = db.doc(`users/${callerUid}`);
+        const userSnap = await tx.get(userRef);
+        
+        if (!userSnap.exists) {
+          throw new functions.https.HttpsError('permission-denied', 'User profile not found.');
+        }
+        
+        const userData = userSnap.data()!;
+        const role = userData.role;
 
-  const reqRef = withdrawReqRef();
-  const requestId = reqRef.id;
+        if (data?.customerId != null) {
+          // Admin creating on behalf of customer
+          if (role !== 'admin' && role !== 'superadmin') {
+            throw new functions.https.HttpsError('permission-denied', 'Only admins can specify a customerId.');
+          }
+          customerId = requireString(data.customerId, 'customerId', { max: 128 });
+        } else {
+          // Customer creating for themselves
+          customerId = userData.customerId;
+          if (!customerId) {
+            console.error(`   ❌ User ${callerUid} has no linked customerId`);
+            throw new functions.https.HttpsError('failed-precondition', 'User profile is not linked to a customer account.');
+          }
+        }
 
-  await db.runTransaction(async (tx: Tx) => {
-    // Ensure wallet exists so the client can always stream a small snapshot doc.
-    const wRef = walletRef(customerId);
-    const wSnap = await tx.get(wRef);
-    const currentBalance = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
-    
-    if (!wSnap.exists) {
-      tx.set(wRef, { balanceCents: 0, updatedAt: FieldValue.serverTimestamp() });
+        console.log(`   Resolved Customer ID: ${customerId}`);
+
+        // 2. Validate Customer & Wallet existence
+        const custRef = customerRef(customerId);
+        const wRef = walletRef(customerId);
+        
+        const [custSnap, wSnap] = await Promise.all([
+          tx.get(custRef),
+          tx.get(wRef)
+        ]);
+
+        if (!custSnap.exists) {
+          console.error(`   ❌ Customer ${customerId} document not found`);
+          throw new functions.https.HttpsError('failed-precondition', 'Linked customer profile not found.');
+        }
+
+        const currentBalance = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
+        
+        if (!wSnap.exists) {
+          tx.set(wRef, { balanceCents: 0, updatedAt: FieldValue.serverTimestamp() });
+        }
+
+        // 3. Create Request
+        tx.set(reqRef, {
+          customerId,
+          amountCents,
+          reason,
+          status: 'PENDING',
+          requestedByUid: callerUid,
+          reviewedByUid: null,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // 4. Create Ledger Entry
+        const lRef = ledgerRef(customerId);
+        tx.set(lRef, {
+          type: 'WITHDRAW_REQUEST',
+          direction: 'OUT',
+          amountCents,
+          balanceAfterCents: currentBalance, // No balance change on request
+          txDate: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUid: callerUid,
+          meta: { requestId, reason },
+        });
+      });
+
+      console.log('✅ [requestWithdraw] Success');
+      return { ok: true, requestId };
+    } catch (error: any) {
+      console.error('❌ [requestWithdraw] Error:', error);
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
+      }
+      throw new functions.https.HttpsError('internal', `Failed to create withdraw request: ${error.message || 'Unknown error'}`);
     }
-
-    tx.set(reqRef, {
-      customerId,
-      amountCents,
-      reason,
-      status: 'PENDING',
-      requestedByUid: callerUid,
-      reviewedByUid: null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    const lRef = ledgerRef(customerId);
-    tx.set(lRef, {
-      type: 'WITHDRAW_REQUEST',
-      direction: 'OUT',
-      amountCents,
-      balanceAfterCents: currentBalance, // No balance change on request
-      txDate: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-      createdByUid: callerUid,
-      meta: { requestId, reason },
-    });
-  });
-
-    return { ok: true, requestId };
   },
 );
 
 export const approveWithdraw = functions.https.onCall(
   async (data: any, context: functions.https.CallableContext) => {
-  const callerUid = requireAuth(context);
-  await requireAdmin(callerUid);
-
-  const requestId = requireString(data?.requestId, 'requestId', { max: 128 });
-  const idempotencyKey =
-    data?.idempotencyKey == null ? undefined : requireString(data.idempotencyKey, 'idempotencyKey', { max: 128 });
-  const reqRef = withdrawReqRef(requestId);
-
-  let idempotent = false;
-  await db.runTransaction(async (tx: Tx) => {
-    if (idempotencyKey != null) {
-      const iRef = idempotencyRef(callerUid, idempotencyKey);
-      const iSnap = await tx.get(iRef);
-      if (iSnap.exists) {
-        idempotent = true;
-        return;
-      }
-      tx.set(iRef, { createdAt: FieldValue.serverTimestamp(), requestId });
-    }
-
-    const reqSnap = await tx.get(reqRef);
-    if (!reqSnap.exists) {
-      throw new functions.https.HttpsError('not-found', 'Withdraw request not found.');
-    }
-
-    const req = reqSnap.data() as any;
-    if (req.status !== 'PENDING') {
-      throw new functions.https.HttpsError('failed-precondition', 'Request is not pending.');
-    }
-
-    const customerId = req.customerId as string;
-    const amountCents = requireIntCents(req.amountCents, 'amountCents');
-
-    const wRef = walletRef(customerId);
-    const wSnap = await tx.get(wRef);
-    const bal = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
-    const newBalance = bal - amountCents;
-
-    // Check credit limit if balance will go negative
-    if (newBalance < 0) {
-      const custRef = customerRef(customerId);
-      const custSnap = await tx.get(custRef);
+    console.log('🟢 [approveWithdraw] Function called');
+    try {
+      const callerUid = requireAuth(context);
+      console.log(`   Caller UID: ${callerUid}`);
       
-      if (custSnap.exists) {
-        const creditLimitCents = (custSnap.data()?.creditLimitCents as number | undefined) ?? 0;
+      const requestId = requireString(data?.requestId, 'requestId', { max: 128 });
+      const idempotencyKey = data?.idempotencyKey == null ? undefined : requireString(data.idempotencyKey, 'idempotencyKey', { max: 128 });
+      console.log(`   Request ID: ${requestId}, Idempotency Key: ${idempotencyKey}`);
+      
+      const reqRef = withdrawReqRef(requestId);
+
+      let idempotent = false;
+      await db.runTransaction(async (tx: Tx) => {
+        console.log('   Starting transaction...');
         
-        // creditLimitCents = 0 means unlimited credit
-        // creditLimitCents > 0 means limit the negative balance
-        if (creditLimitCents > 0 && Math.abs(newBalance) > creditLimitCents) {
-          throw new functions.https.HttpsError(
-            'failed-precondition',
-            `Credit limit exceeded. Limit: ${creditLimitCents} cents, would be: ${Math.abs(newBalance)} cents debt.`,
-          );
+        // --- 1. ALL READS FIRST ---
+        
+        // A. Verify admin role
+        console.log('   [READ] Verifying admin role...');
+        const userSnap = await tx.get(db.doc(`users/${callerUid}`));
+        
+        // B. Idempotency check
+        let iRef = null;
+        let iSnap = null;
+        if (idempotencyKey != null) {
+          console.log('   [READ] Checking idempotency...');
+          iRef = idempotencyRef(callerUid, idempotencyKey);
+          iSnap = await tx.get(iRef);
         }
+
+        // C. Request validation
+        console.log('   [READ] Validating withdraw request...');
+        const reqSnap = await tx.get(reqRef);
+        
+        // D. Early return for idempotency (before further reads if possible, but keep reads organized)
+        if (iSnap?.exists) {
+          console.log('   ⚠️ Idempotent request detected');
+          idempotent = true;
+          return;
+        }
+
+        // --- 2. VALIDATION LOGIC (Uses data from reads) ---
+        
+        if (!userSnap.exists) {
+          console.error(`   ❌ User profile not found for ${callerUid}`);
+          throw new functions.https.HttpsError('permission-denied', 'User profile not found.');
+        }
+        const role = userSnap.data()?.role;
+        console.log(`       Role: ${role}`);
+        if (role !== 'admin' && role !== 'superadmin') {
+          console.error('   ❌ Permission denied: Not an admin');
+          throw new functions.https.HttpsError('permission-denied', 'Admin role required.');
+        }
+
+        if (!reqSnap.exists) {
+          console.error(`   ❌ Request ${requestId} not found`);
+          throw new functions.https.HttpsError('not-found', 'Withdraw request not found.');
+        }
+        const req = reqSnap.data() as any;
+        console.log(`       Request status: ${req.status}, Amount: ${req.amountCents}`);
+        if (req.status !== 'PENDING') {
+          console.error(`   ❌ Request is not pending (status: ${req.status})`);
+          throw new functions.https.HttpsError('failed-precondition', 'Request is not pending.');
+        }
+
+        const customerId = req.customerId as string;
+        if (!customerId) {
+          console.error('   ❌ Request has no customerId');
+          throw new functions.https.HttpsError('failed-precondition', 'Request has no customerId.');
+        }
+
+        const amountCents = requireIntCents(req.amountCents, 'amountCents');
+
+        // E. More Reads (Customer and Wallet)
+        console.log(`   [READ] Validating customer ${customerId} and wallet...`);
+        const custRef = customerRef(customerId);
+        const wRef = walletRef(customerId);
+        
+        const [custSnap, wSnap] = await Promise.all([
+          tx.get(custRef),
+          tx.get(wRef)
+        ]);
+
+        if (!custSnap.exists) {
+          console.error(`   ❌ Customer profile ${customerId} not found`);
+          throw new functions.https.HttpsError('failed-precondition', 'Customer profile not found.');
+        }
+        
+        const creditLimitCents = (custSnap.data()?.creditLimitCents as number | undefined) ?? 0;
+        console.log(`       Credit limit: ${creditLimitCents}`);
+
+        const bal = (wSnap.data()?.balanceCents as number | undefined) ?? 0;
+        const newBalance = bal - amountCents;
+        console.log(`       Current balance: ${bal}, New balance: ${newBalance}`);
+
+        if (newBalance < 0) {
+          console.log('       Balance will go negative, verifying limit...');
+          if (creditLimitCents > 0 && Math.abs(newBalance) > creditLimitCents) {
+            console.error(`   ❌ Credit limit exceeded: debt=${Math.abs(newBalance)}, limit=${creditLimitCents}`);
+            throw new functions.https.HttpsError(
+              'failed-precondition',
+              `Credit limit exceeded. Limit: ${creditLimitCents} cents, would be: ${Math.abs(newBalance)} cents debt.`,
+            );
+          }
+        }
+
+        // --- 3. ALL WRITES LAST ---
+        
+        console.log('   [WRITE] Applying database updates...');
+        
+        if (iRef) {
+          tx.set(iRef, { createdAt: FieldValue.serverTimestamp(), requestId });
+          console.log('       Idempotency key recorded');
+        }
+
+        tx.set(wRef, { balanceCents: newBalance, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        tx.set(reqRef, { status: 'APPROVED', reviewedByUid: callerUid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+
+        const lRef = ledgerRef(customerId);
+        tx.set(lRef, {
+          type: 'WITHDRAW_APPROVE',
+          direction: 'OUT',
+          amountCents,
+          balanceAfterCents: newBalance,
+          txDate: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          createdByUid: callerUid,
+          meta: { requestId },
+        });
+        console.log('       Ledger entry created');
+      });
+
+      console.log('✅ [approveWithdraw] Success');
+      return { ok: true, idempotent };
+    } catch (error: any) {
+      console.error('❌ [approveWithdraw] Error:', error);
+      if (error instanceof functions.https.HttpsError) {
+        throw error;
       }
+      throw new functions.https.HttpsError('internal', `Failed to approve withdraw: ${error.message || 'Unknown error'}`);
     }
-
-    tx.set(
-      wRef,
-      { balanceCents: newBalance, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true },
-    );
-
-    tx.set(
-      reqRef,
-      { status: 'APPROVED', reviewedByUid: callerUid, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true },
-    );
-
-    const lRef = ledgerRef(customerId);
-    tx.set(lRef, {
-      type: 'WITHDRAW_APPROVE',
-      direction: 'OUT',
-      amountCents,
-      balanceAfterCents: newBalance,
-      txDate: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-      createdByUid: callerUid,
-      meta: { requestId },
-    });
-  });
-
-    return { ok: true, idempotent };
   },
 );
 
