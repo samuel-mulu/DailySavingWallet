@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -8,8 +10,8 @@ import '../../../core/ui/empty_state.dart';
 import '../../../core/ui/error_state.dart';
 import '../../../data/wallet/models.dart';
 import '../../../data/wallet/wallet_repo.dart';
-import '../../wallet/withdraw_request_screen.dart';
 import '../../wallet/widgets/transaction_tile.dart';
+import '../../wallet/withdraw_request_screen.dart';
 
 class CustomerHomeTab extends StatefulWidget {
   const CustomerHomeTab({super.key});
@@ -22,6 +24,7 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
   final _repo = WalletRepo();
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
+  String? get _userName => FirebaseAuth.instance.currentUser!.displayName;
 
   Stream<String?> _getCustomerId() {
     return FirebaseFirestore.instance
@@ -32,26 +35,23 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Header
-        const AppHeader(
-          title: 'My Wallet',
-          subtitle: 'Welcome back',
-        ),
-        
-        // Content
-        Expanded(
-          child: StreamBuilder<String?>(
-            stream: _getCustomerId(),
-            builder: (context, customerIdSnap) {
-              if (customerIdSnap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
+    return StreamBuilder<String?>(
+      stream: _getCustomerId(),
+      builder: (context, customerIdSnap) {
+        if (customerIdSnap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-              final customerId = customerIdSnap.data;
-              if (customerId == null) {
-                return Center(
+        final customerId = customerIdSnap.data;
+        if (customerId == null) {
+          return Column(
+            children: [
+              AppHeader(
+                title: 'My Wallet',
+                subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
+              ),
+              Expanded(
+                child: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Column(
@@ -91,103 +91,34 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
                       ],
                     ),
                   ),
-                );
-              }
+                ),
+              ),
+            ],
+          );
+        }
 
-              return RefreshIndicator(
+        return Column(
+          children: [
+            // Standard White Header
+            AppHeader(
+              title: 'My Wallet',
+              subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
+            ),
+
+            Expanded(
+              child: RefreshIndicator(
                 color: const Color(0xFF8B5CF6),
                 onRefresh: () async => setState(() {}),
                 child: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    // Balance Card
-                    StreamBuilder(
-                      stream: _repo.streamWalletDoc(customerId),
-                      builder: (context, snap) {
-                        final doc = snap.data;
-                        final wallet = doc == null || !doc.exists 
-                            ? null 
-                            : WalletSnapshot.fromDoc(customerId, doc);
-                        final balance = wallet?.balanceCents ?? 0;
-                        final isNegative = balance < 0;
-                        
-                        return Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: isNegative
-                                  ? [const Color(0xFFC62828), const Color(0xFFE53935)]
-                                  : [const Color(0xFF8B5CF6), const Color(0xFF7C3AED)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (isNegative 
-                                    ? const Color(0xFFC62828) 
-                                    : const Color(0xFF8B5CF6)).withOpacity(0.3),
-                                blurRadius: 20,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.account_balance_wallet_rounded,
-                                    color: Colors.white70,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    isNegative ? 'Outstanding Balance' : 'Available Balance',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              snap.connectionState == ConnectionState.waiting
-                                  ? Container(
-                                      height: 40,
-                                      width: 150,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white24,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    )
-                                  : Text(
-                                      MoneyEtb.formatCents(balance),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                              if (wallet?.updatedAt != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Updated: ${_formatDate(wallet!.updatedAt!)}',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.7),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                    
-                    const SizedBox(height: 20),
-                    
+                    const SizedBox(height: 16),
+
+                    // Modern Floating Balance Card
+                    BalanceCard(customerId: customerId),
+
+                    const SizedBox(height: 24),
+
                     // Quick Actions
                     Text(
                       'Quick Actions',
@@ -206,7 +137,9 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
                             label: 'Request\nWithdraw',
                             color: const Color(0xFF8B5CF6),
                             onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const WithdrawRequestScreen()),
+                              MaterialPageRoute(
+                                builder: (_) => const WithdrawRequestScreen(),
+                              ),
                             ),
                           ),
                         ),
@@ -219,16 +152,18 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
                             onTap: () {
                               // Navigate to history tab would require a callback
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Go to History tab')),
+                                const SnackBar(
+                                  content: Text('Go to History tab'),
+                                ),
                               );
                             },
                           ),
                         ),
                       ],
                     ),
-                    
+
                     const SizedBox(height: 24),
-                    
+
                     // Recent Transactions
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -244,7 +179,7 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    
+
                     FutureBuilder(
                       future: _repo.fetchRecentLedger(customerId, limit: 5),
                       builder: (context, snap) {
@@ -291,16 +226,176 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
                     ),
                   ],
                 ),
-              );
-            },
-          ),
-        ),
-      ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
+}
 
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
+class BalanceCard extends StatefulWidget {
+  final String customerId;
+  const BalanceCard({super.key, required this.customerId});
+
+  @override
+  State<BalanceCard> createState() => _BalanceCardState();
+}
+
+class _BalanceCardState extends State<BalanceCard> {
+  final _repo = WalletRepo();
+  bool _hideBalance = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _repo.streamWalletDoc(widget.customerId),
+      builder: (context, snap) {
+        final doc = snap.data;
+        final wallet = doc == null || !doc.exists
+            ? null
+            : WalletSnapshot.fromDoc(widget.customerId, doc);
+        final balance = wallet?.balanceCents ?? 0;
+        final isNegative = balance < 0;
+
+        // Professional lighter palette
+        final baseColor = isNegative
+            ? const Color(0xFFEF5350)
+            : const Color(0xFF0EA5E9);
+        final accentColor = isNegative
+            ? const Color(0xFFE57373)
+            : const Color(0xFF2DD4BF);
+
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [baseColor, accentColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: baseColor.withOpacity(0.3),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(
+              children: [
+                // Subtle ornaments
+                Positioned(
+                  top: -20,
+                  right: -20,
+                  child: CircleAvatar(
+                    radius: 60,
+                    backgroundColor: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.account_balance_wallet_rounded,
+                            color: Colors.white.withOpacity(0.8),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            isNegative
+                                ? 'OUTSTANDING BALANCE'
+                                : 'AVAILABLE BALANCE',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Glassmorphic Balance Area (Clean Layer)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 24,
+                              horizontal: 16,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: GestureDetector(
+                              onTap: () =>
+                                  setState(() => _hideBalance = !_hideBalance),
+                              behavior: HitTestBehavior.opaque,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        _hideBalance
+                                            ? '••••••'
+                                            : MoneyEtb.formatCents(
+                                                balance,
+                                              ).replaceAll('ETB ', ''),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 40,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Icon(
+                                        _hideBalance
+                                            ? Icons.visibility_off_rounded
+                                            : Icons.visibility_rounded,
+                                        color: Colors.white.withOpacity(0.8),
+                                        size: 24,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -322,9 +417,7 @@ class _QuickActionCard extends StatelessWidget {
     return Card(
       elevation: 2,
       shadowColor: color.withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),

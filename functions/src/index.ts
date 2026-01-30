@@ -213,6 +213,7 @@ export const recordDailySaving = functions.https.onCall(
       customerId: data?.customerId,
       amountCents: data?.amountCents,
       txDateMillis: data?.txDateMillis,
+      txDay: data?.txDay,
       hasNote: !!data?.note,
       hasIdempotencyKey: !!data?.idempotencyKey,
     }));
@@ -220,6 +221,7 @@ export const recordDailySaving = functions.https.onCall(
     const customerId = requireString(data?.customerId, 'customerId', { max: 128 });
     const amountCents = requireIntCents(data?.amountCents, 'amountCents');
     const txDateMillis = requireTimestamp(data?.txDateMillis, 'txDateMillis');
+    const txDay = requireString(data?.txDay, 'txDay', { min: 10, max: 10 }); // Expect YYYY-MM-DD
     const note = data?.note == null ? undefined : requireString(data.note, 'note', { max: 500 });
     const idempotencyKey =
       data?.idempotencyKey == null ? undefined : requireString(data.idempotencyKey, 'idempotencyKey', { max: 128 });
@@ -291,14 +293,16 @@ export const recordDailySaving = functions.https.onCall(
         tx.set(wRef, { balanceCents: next, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       }
 
-      // Write 3: Create ledger entry
+        // Write 3: Create ledger entry
       const lRef = ledgerRef(customerId);
       const ledgerData = {
         type: 'DAILY_PAYMENT',
         direction: 'IN',
+        customerId, // Explicitly save customerId for collectionGroup queries
         amountCents,
         balanceAfterCents: next,
         txDate,
+        txDay,
         createdAt: FieldValue.serverTimestamp(),
         createdByUid: callerUid,
         ...(note ? { meta: { note } } : {}),
@@ -425,6 +429,7 @@ export const recordDepositV2 = functions.https.onCall(
         const ledgerData = {
           type: 'DEPOSIT',
           direction: 'IN',
+          customerId,
           amountCents,
           balanceAfterCents: next,
           txDate,

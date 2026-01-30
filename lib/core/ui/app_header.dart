@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'calendar_toggle_btn.dart';
+
 /// Reusable modern app header with user info and actions
 class AppHeader extends StatelessWidget {
   final String title;
@@ -23,7 +25,11 @@ class AppHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final displayName = userName ?? user?.displayName ?? user?.email?.split('@').first ?? 'User';
+    final displayName =
+        userName ??
+        user?.displayName ??
+        user?.email?.split('@').first ??
+        'User';
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : 'U';
 
     return Container(
@@ -64,7 +70,7 @@ class AppHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          
+
           // Title and Subtitle
           Expanded(
             child: Column(
@@ -89,10 +95,15 @@ class AppHeader extends StatelessWidget {
               ],
             ),
           ),
-          
+
+          // Calendar Toggle
+          const CalendarToggleBtn(),
+
+          if (actions != null) const SizedBox(width: 8),
+
           // Actions
           if (actions != null) ...actions!,
-          
+
           // Logout Button
           if (showLogout)
             IconButton(
@@ -129,13 +140,11 @@ class StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cardColor = color ?? const Color(0xFF8B5CF6);
-    
+
     return Card(
       elevation: 2,
       shadowColor: cardColor.withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
@@ -151,11 +160,7 @@ class StatCard extends StatelessWidget {
                   color: cardColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(
-                  icon,
-                  color: cardColor,
-                  size: 22,
-                ),
+                child: Icon(icon, color: cardColor, size: 22),
               ),
               const SizedBox(height: 12),
               Text(
@@ -169,10 +174,7 @@ class StatCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 title,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: const Color(0xFF6B7280),
-                ),
+                style: TextStyle(fontSize: 13, color: const Color(0xFF6B7280)),
               ),
             ],
           ),
@@ -200,7 +202,7 @@ class DashboardAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actionColor = color ?? const Color(0xFF8B5CF6);
-    
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -209,9 +211,7 @@ class DashboardAction extends StatelessWidget {
         decoration: BoxDecoration(
           color: actionColor.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: actionColor.withOpacity(0.2),
-          ),
+          border: Border.all(color: actionColor.withOpacity(0.2)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

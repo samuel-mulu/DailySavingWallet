@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/money/money.dart';
+import '../../../core/settings/calendar_mode.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/customers/customer_repo.dart';
@@ -20,261 +21,336 @@ class CustomerDetailScreen extends StatefulWidget {
 
 class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   final _uuid = const Uuid();
-  
+  CalendarModeService? _calendarService;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCalendarService();
+  }
+
+  Future<void> _initCalendarService() async {
+    final service = await CalendarModeService.getInstance();
+    if (mounted) setState(() => _calendarService = service);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_calendarService == null)
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
     final customerRepo = CustomerRepo();
     final walletRepo = WalletRepo();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Customer Details')),
-      body: StreamBuilder<Customer?>(
-        stream: customerRepo.streamCustomer(widget.customerId),
-        builder: (context, custSnap) {
-          if (custSnap.hasError) {
-            return Center(child: Text('Error: ${custSnap.error}'));
-          }
+    return ValueListenableBuilder<CalendarMode>(
+      valueListenable: _calendarService!,
+      builder: (context, mode, _) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Customer Details')),
+          body: StreamBuilder<Customer?>(
+            stream: customerRepo.streamCustomer(widget.customerId),
+            builder: (context, custSnap) {
+              if (custSnap.hasError) {
+                return Center(child: Text('Error: ${custSnap.error}'));
+              }
 
-          if (!custSnap.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+              if (!custSnap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-          final customer = custSnap.data;
-          if (customer == null) {
-            return const Center(child: Text('Customer not found'));
-          }
+              final customer = custSnap.data;
+              if (customer == null) {
+                return const Center(child: Text('Customer not found'));
+              }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              // Profile Card
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 32,
-                            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                            child: Text(
-                              customer.fullName.isNotEmpty
-                                  ? customer.fullName[0].toUpperCase()
-                                  : '?',
-                              style: TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  customer.fullName,
-                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                ),
-                                Text(
-                                  customer.companyName,
-                                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                        color: Theme.of(context).colorScheme.secondary,
-                                      ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 24),
-                      _InfoRow(icon: Icons.phone, label: 'Phone', value: customer.phone),
-                      const SizedBox(height: 8),
-                      _InfoRow(icon: Icons.location_on, label: 'Address', value: customer.address),
-                      const SizedBox(height: 8),
-                      _InfoRow(
-                        icon: Icons.savings,
-                        label: 'Daily Target',
-                        value: MoneyEtb.formatCents(customer.dailyTargetCents),
-                      ),
-                      const SizedBox(height: 8),
-                      _InfoRow(
-                        icon: Icons.credit_card,
-                        label: 'Credit Limit',
-                        value: customer.creditLimitCents == 0
-                            ? 'Unlimited'
-                            : MoneyEtb.formatCents(customer.creditLimitCents),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // Wallet Balance Card
-              StreamBuilder(
-                stream: walletRepo.streamWallet(widget.customerId),
-                builder: (context, walletSnap) {
-                  if (!walletSnap.hasData || walletSnap.data == null) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    );
-                  }
-
-                  final wallet = walletSnap.data!;
-                  final isNegative = wallet.balanceCents < 0;
-
-                  return Card(
-                    color: isNegative
-                        ? Theme.of(context).colorScheme.errorContainer
-                        : Theme.of(context).colorScheme.primaryContainer,
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Profile Card
+                  Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Wallet Balance',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                  color: isNegative
-                                      ? Theme.of(context).colorScheme.onErrorContainer
-                                      : Theme.of(context).colorScheme.onPrimaryContainer,
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 32,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.primaryContainer,
+                                child: Text(
+                                  customer.fullName.isNotEmpty
+                                      ? customer.fullName[0].toUpperCase()
+                                      : '?',
+                                  style: TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer,
+                                  ),
                                 ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      customer.fullName,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    Text(
+                                      customer.companyName,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.secondary,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                          _InfoRow(
+                            icon: Icons.phone,
+                            label: 'Phone',
+                            value: customer.phone,
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            MoneyEtb.formatCents(wallet.balanceCents),
-                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: isNegative
-                                      ? Theme.of(context).colorScheme.onErrorContainer
-                                      : Theme.of(context).colorScheme.onPrimaryContainer,
-                                ),
+                          _InfoRow(
+                            icon: Icons.location_on,
+                            label: 'Address',
+                            value: customer.address,
                           ),
-                          if (isNegative) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              'Customer has debt',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(context).colorScheme.onErrorContainer,
-                              ),
+                          const SizedBox(height: 8),
+                          _InfoRow(
+                            icon: Icons.savings,
+                            label: 'Daily Target',
+                            value: MoneyEtb.formatCents(
+                              customer.dailyTargetCents,
                             ),
-                          ],
+                          ),
+                          const SizedBox(height: 8),
+                          _InfoRow(
+                            icon: Icons.credit_card,
+                            label: 'Credit Limit',
+                            value: customer.creditLimitCents == 0
+                                ? 'Unlimited'
+                                : MoneyEtb.formatCents(
+                                    customer.creditLimitCents,
+                                  ),
+                          ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 16),
 
-              // Quick Actions
-              Text(
-                'Quick Actions',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  // Wallet Balance Card
+                  StreamBuilder(
+                    stream: walletRepo.streamWallet(widget.customerId),
+                    builder: (context, walletSnap) {
+                      if (!walletSnap.hasData || walletSnap.data == null) {
+                        return const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        );
+                      }
+
+                      final wallet = walletSnap.data!;
+                      final isNegative = wallet.balanceCents < 0;
+
+                      return Card(
+                        color: isNegative
+                            ? Theme.of(context).colorScheme.errorContainer
+                            : Theme.of(context).colorScheme.primaryContainer,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Wallet Balance',
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(
+                                      color: isNegative
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.onErrorContainer
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                MoneyEtb.formatCents(wallet.balanceCents),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: isNegative
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.onErrorContainer
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer,
+                                    ),
+                              ),
+                              if (isNegative) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Customer has debt',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onErrorContainer,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Quick Actions
+                  Text(
+                    'Quick Actions',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _showRecordPayment(context, customer, 'DAILY_PAYMENT'),
-                      icon: const Icon(Icons.savings),
-                      label: const Text('Daily Saving'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade600,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () => _showRecordPayment(
+                            context,
+                            customer,
+                            'DAILY_PAYMENT',
+                          ),
+                          icon: const Icon(Icons.savings),
+                          label: const Text('Daily Saving'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green.shade600,
+                          ),
+                        ),
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () =>
+                              _showRecordPayment(context, customer, 'DEPOSIT'),
+                          icon: const Icon(Icons.add_circle),
+                          label: const Text('Deposit'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.blue.shade600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showRequestWithdraw(context, customer),
+                      icon: const Icon(Icons.remove_circle_outline),
+                      label: const Text('Request Withdraw'),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => _showRecordPayment(context, customer, 'DEPOSIT'),
-                      icon: const Icon(Icons.add_circle),
-                      label: const Text('Deposit'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.blue.shade600,
-                      ),
+                  const SizedBox(height: 24),
+
+                  // Transaction History
+                  Text(
+                    'Recent Transactions',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  FutureBuilder<List<LedgerTx>>(
+                    future: walletRepo.fetchRecentLedger(
+                      widget.customerId,
+                      limit: 10,
+                    ),
+                    builder: (context, txSnap) {
+                      if (txSnap.hasError) {
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text('Error: ${txSnap.error}'),
+                          ),
+                        );
+                      }
+
+                      if (!txSnap.hasData) {
+                        return const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        );
+                      }
+
+                      final txs = txSnap.data!;
+                      if (txs.isEmpty) {
+                        return const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: Text('No transactions yet')),
+                          ),
+                        );
+                      }
+
+                      return Card(
+                        child: Column(
+                          children: txs
+                              .map(
+                                (tx) =>
+                                    TransactionTile(tx: tx, calendarMode: mode),
+                              )
+                              .toList(),
+                        ),
+                      );
+                    }, // FutureBuilder
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _showRequestWithdraw(context, customer),
-                  icon: const Icon(Icons.remove_circle_outline),
-                  label: const Text('Request Withdraw'),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Transaction History
-              Text(
-                'Recent Transactions',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              FutureBuilder<List<LedgerTx>>(
-                future: walletRepo.fetchRecentLedger(widget.customerId, limit: 10),
-                builder: (context, txSnap) {
-                  if (txSnap.hasError) {
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text('Error: ${txSnap.error}'),
-                      ),
-                    );
-                  }
-
-                  if (!txSnap.hasData) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    );
-                  }
-
-                  final txs = txSnap.data!;
-                  if (txs.isEmpty) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: Text('No transactions yet')),
-                      ),
-                    );
-                  }
-
-                  return Card(
-                    child: Column(
-                      children: txs.map((tx) => TransactionTile(tx: tx)).toList(),
-                    ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
-      ),
+              );
+            }, // StreamBuilder
+          ), // Scaffold
+        );
+      },
     );
   }
 
-  void _showRecordPayment(BuildContext context, Customer customer, String type) {
+  void _showRecordPayment(
+    BuildContext context,
+    Customer customer,
+    String type,
+  ) {
     final amountCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
     DateTime selectedDate = DateTime.now();
@@ -283,7 +359,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(type == 'DAILY_PAYMENT' ? 'Record Daily Saving' : 'Record Deposit'),
+          title: Text(
+            type == 'DAILY_PAYMENT' ? 'Record Daily Saving' : 'Record Deposit',
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -292,7 +370,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 // Date Selector
                 DateSelector(
                   selectedDate: selectedDate,
-                  onDateChanged: (date) => setDialogState(() => selectedDate = date),
+                  onDateChanged: (date) =>
+                      setDialogState(() => selectedDate = date),
                   showQuickSelect: true,
                 ),
                 const SizedBox(height: 16),
@@ -302,7 +381,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                     labelText: 'Amount (ETB)',
                     border: OutlineInputBorder(),
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
@@ -326,7 +407,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               onPressed: () async {
                 try {
                   final cents = MoneyEtb.parseEtbToCents(amountCtrl.text);
-                  final note = noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim();
+                  final note = noteCtrl.text.trim().isEmpty
+                      ? null
+                      : noteCtrl.text.trim();
                   final txDateMillis = dateToTxMillis(selectedDate);
 
                   if (type == 'DAILY_PAYMENT') {
@@ -350,14 +433,16 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                   if (!dialogContext.mounted) return;
                   Navigator.of(dialogContext).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Payment recorded successfully')),
+                    const SnackBar(
+                      content: Text('Payment recorded successfully'),
+                    ),
                   );
                   setState(() {}); // Refresh
                 } catch (e) {
                   if (!dialogContext.mounted) return;
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
-                  );
+                  ScaffoldMessenger.of(
+                    dialogContext,
+                  ).showSnackBar(SnackBar(content: Text('Error: $e')));
                 }
               },
               child: const Text('Submit'),
@@ -385,7 +470,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 labelText: 'Amount (ETB)',
                 border: OutlineInputBorder(),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
@@ -409,7 +496,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               try {
                 final cents = MoneyEtb.parseEtbToCents(amountCtrl.text);
                 final reason = reasonCtrl.text.trim();
-                
+
                 if (reason.isEmpty) {
                   throw const FormatException('Reason is required');
                 }
@@ -428,9 +515,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 setState(() {}); // Refresh
               } catch (e) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error: $e')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Error: $e')));
               }
             },
             child: const Text('Submit'),
@@ -465,14 +552,14 @@ class _InfoRow extends StatelessWidget {
               Text(
                 label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               Text(
                 value,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
               ),
             ],
           ),

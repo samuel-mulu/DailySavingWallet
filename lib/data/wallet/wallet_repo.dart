@@ -8,10 +8,13 @@ class WalletRepo {
   final FirebaseFunctions _functions;
 
   WalletRepo({FirebaseFirestore? db, FirebaseFunctions? functions})
-      : _db = db ?? FirebaseFirestore.instance,
-        _functions = functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+    : _db = db ?? FirebaseFirestore.instance,
+      _functions =
+          functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
-  Stream<DocumentSnapshot<Map<String, dynamic>>> streamWalletDoc(String customerId) {
+  Stream<DocumentSnapshot<Map<String, dynamic>>> streamWalletDoc(
+    String customerId,
+  ) {
     return _db.doc('wallets/$customerId').snapshots();
   }
 
@@ -26,13 +29,30 @@ class WalletRepo {
     String customerId, {
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
     int limit = 20,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<String>? types,
   }) async {
     Query<Map<String, dynamic>> q = _db
         .collection('wallets')
         .doc(customerId)
         .collection('ledger')
-        .orderBy('txDate', descending: true)
-        .limit(limit);
+        .orderBy('txDate', descending: true);
+
+    if (startDate != null) {
+      q = q.where(
+        'txDate',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
+      );
+    }
+    if (endDate != null) {
+      q = q.where('txDate', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
+    }
+    if (types != null && types.isNotEmpty) {
+      q = q.where('type', whereIn: types);
+    }
+
+    q = q.limit(limit);
 
     if (startAfter != null) {
       q = q.startAfterDocument(startAfter);
@@ -41,22 +61,34 @@ class WalletRepo {
     final snap = await q.get();
     final items = snap.docs.map(LedgerTx.fromDoc).toList(growable: false);
     final last = snap.docs.isEmpty ? null : snap.docs.last;
-    return LedgerPage(items: items, lastDoc: last, hasMore: snap.docs.length == limit);
+    return LedgerPage(
+      items: items,
+      lastDoc: last,
+      hasMore: snap.docs.length == limit,
+    );
   }
 
-  Future<List<LedgerTx>> fetchRecentLedger(String customerId, {int limit = 5}) async {
+  Future<List<LedgerTx>> fetchRecentLedger(
+    String customerId, {
+    int limit = 5,
+  }) async {
     final page = await fetchLedgerPage(customerId, limit: limit);
     return page.items;
   }
 
-  Stream<List<WithdrawRequest>> streamPendingWithdrawRequests({int limit = 20}) {
+  Stream<List<WithdrawRequest>> streamPendingWithdrawRequests({
+    int limit = 20,
+  }) {
     return _db
         .collection('withdrawRequests')
         .where('status', isEqualTo: 'PENDING')
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((snap) => snap.docs.map(WithdrawRequest.fromDoc).toList(growable: false));
+        .map(
+          (snap) =>
+              snap.docs.map(WithdrawRequest.fromDoc).toList(growable: false),
+        );
   }
 
   Stream<List<WithdrawRequest>> streamCustomerWithdrawRequests(
@@ -69,7 +101,10 @@ class WalletRepo {
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((snap) => snap.docs.map(WithdrawRequest.fromDoc).toList(growable: false));
+        .map(
+          (snap) =>
+              snap.docs.map(WithdrawRequest.fromDoc).toList(growable: false),
+        );
   }
 
   Future<int> fetchPendingWithdrawCount({int limit = 20}) async {
@@ -82,9 +117,54 @@ class WalletRepo {
     return snap.size;
   }
 
-  Future<void> requestWithdraw({required int amountCents, required String reason}) async {
+  Stream<int> streamPendingWithdrawCount({int limit = 99}) {
+    return _db
+        .collection('withdrawRequests')
+        .where('status', isEqualTo: 'PENDING')
+        .limit(limit)
+        .snapshots()
+        .map((snap) => snap.size);
+  }
+
+  Future<void> requestWithdraw({
+    required int amountCents,
+    required String reason,
+  }) async {
     final callable = _functions.httpsCallable('requestWithdraw');
-    await callable.call(<String, dynamic>{'amountCents': amountCents, 'reason': reason});
+    await callable.call(<String, dynamic>{
+      'amountCents': amountCents,
+      'reason': reason,
+    });
+  }
+
+  Stream<Set<String>> streamRecordedCustomerIdsForDay(String txDay) {
+    print(
+      '🔍 [WalletRepo] streamRecordedCustomerIdsForDay: Querying for txDay="$txDay"',
+    );
+    return _db
+        .collectionGroup('ledger')
+        .where('type', isEqualTo: 'DAILY_PAYMENT')
+        .where('txDay', isEqualTo: txDay)
+        .snapshots()
+        .map((snap) {
+          print(
+            '🔍 [WalletRepo] Found ${snap.docs.length} ledger entries for $txDay',
+          );
+          final ids = snap.docs
+              .map((d) {
+                final data = d.data();
+                // Try getting from data, otherwise parse from path: wallets/{customerId}/ledger/{txId}
+                String custId = data['customerId'] as String? ?? '';
+                if (custId.isEmpty && d.reference.parent.parent != null) {
+                  custId = d.reference.parent.parent!.id;
+                }
+                return custId;
+              })
+              .where((id) => id.isNotEmpty)
+              .toSet();
+          print('   -> Unique Customer IDs: $ids');
+          return ids;
+        });
   }
 
   Future<void> recordDailySaving({
@@ -94,11 +174,16 @@ class WalletRepo {
     String? note,
     String? idempotencyKey,
   }) async {
+    final txDate = DateTime.fromMillisecondsSinceEpoch(txDateMillis);
+    final txDay =
+        "${txDate.year}-${txDate.month.toString().padLeft(2, '0')}-${txDate.day.toString().padLeft(2, '0')}";
+
     final callable = _functions.httpsCallable('recordDailySaving');
     await callable.call(<String, dynamic>{
       'customerId': customerId,
       'amountCents': amountCents,
       'txDateMillis': txDateMillis,
+      'txDay': txDay,
       if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
         'idempotencyKey': idempotencyKey.trim(),
@@ -112,7 +197,7 @@ class WalletRepo {
     String? note,
     String? idempotencyKey,
   }) async {
-    final callable = _functions.httpsCallable('recordDeposit');
+    final callable = _functions.httpsCallable('recordDepositV2');
     await callable.call(<String, dynamic>{
       'customerId': customerId,
       'amountCents': amountCents,
@@ -137,7 +222,10 @@ class WalletRepo {
     return result.data['requestId'] as String;
   }
 
-  Future<void> approveWithdraw(String requestId, {String? idempotencyKey}) async {
+  Future<void> approveWithdraw(
+    String requestId, {
+    String? idempotencyKey,
+  }) async {
     final callable = _functions.httpsCallable('approveWithdraw');
     await callable.call(<String, dynamic>{
       'requestId': requestId,
@@ -154,4 +242,3 @@ class WalletRepo {
     });
   }
 }
-

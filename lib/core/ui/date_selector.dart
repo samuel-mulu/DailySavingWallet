@@ -1,12 +1,11 @@
+import 'package:ethiopian_datetime/ethiopian_datetime.dart';
 import 'package:flutter/material.dart';
 
-/// A modern chip-style date selector inspired by banking apps.
-/// 
-/// Features:
-/// - Main date chip showing selected date
-/// - Quick select chips for "Today" and "Yesterday"
-/// - Material 3 styling with primary container colors
-class DateSelector extends StatelessWidget {
+import '../dates/date_formatters.dart';
+import '../settings/calendar_mode.dart';
+import 'ethiopian_date_picker.dart';
+
+class DateSelector extends StatefulWidget {
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateChanged;
   final bool showQuickSelect;
@@ -22,80 +21,130 @@ class DateSelector extends StatelessWidget {
     this.lastDate,
   });
 
+  @override
+  State<DateSelector> createState() => _DateSelectorState();
+}
+
+class _DateSelectorState extends State<DateSelector> {
+  CalendarModeService? _service;
+
+  @override
+  void initState() {
+    super.initState();
+    _initService();
+  }
+
+  Future<void> _initService() async {
+    final service = await CalendarModeService.getInstance();
+    if (mounted) {
+      setState(() => _service = service);
+    }
+  }
+
   bool get _isToday {
     final now = DateTime.now();
-    return selectedDate.year == now.year &&
-        selectedDate.month == now.month &&
-        selectedDate.day == now.day;
+    return widget.selectedDate.year == now.year &&
+        widget.selectedDate.month == now.month &&
+        widget.selectedDate.day == now.day;
   }
 
-  bool get _isYesterday {
-    final yesterday = DateTime.now().subtract(const Duration(days: 1));
-    return selectedDate.year == yesterday.year &&
-        selectedDate.month == yesterday.month &&
-        selectedDate.day == yesterday.day;
+  String _formatDate(DateTime date, CalendarMode mode) {
+    return formatDateTime(date, mode, locale: 'am');
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
+  Future<void> _pickDate(BuildContext context, CalendarMode mode) async {
+    if (mode == CalendarMode.ethiopian) {
+      final ETDateTime ethInitial = widget.selectedDate.convertToEthiopian();
+      final ETDateTime ethFirst = (widget.firstDate ?? DateTime(2020, 1, 1))
+          .convertToEthiopian();
+      final ETDateTime ethLast = (widget.lastDate ?? DateTime.now())
+          .convertToEthiopian();
 
-  Future<void> _pickDate(BuildContext context) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: selectedDate,
-      firstDate: firstDate ?? DateTime(2020),
-      lastDate: lastDate ?? DateTime.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme,
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) {
-      onDateChanged(picked);
+      final picked = await showEthiopianDatePicker(
+        context: context,
+        initialDate: ethInitial,
+        firstDate: ethFirst,
+        lastDate: ethLast,
+      );
+
+      if (picked != null) {
+        widget.onDateChanged(picked.convertToGregorian());
+      }
+    } else {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: widget.selectedDate,
+        firstDate: widget.firstDate ?? DateTime(2020, 1, 1),
+        lastDate: widget.lastDate ?? DateTime.now(),
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(
+              context,
+            ).copyWith(colorScheme: Theme.of(context).colorScheme),
+            child: child!,
+          );
+        },
+      );
+
+      if (picked != null) {
+        widget.onDateChanged(picked);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // If service not loaded yet, default to gregorian
+    if (_service == null) {
+      return _buildContent(context, CalendarMode.gregorian);
+    }
+
+    return ValueListenableBuilder<CalendarMode>(
+      valueListenable: _service!,
+      builder: (context, mode, _) {
+        return _buildContent(context, mode);
+      },
+    );
+  }
+
+  Widget _buildContent(BuildContext context, CalendarMode mode) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Label
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'Transaction Date',
+            mode == CalendarMode.ethiopian ? 'የግብይት ቀን' : 'Transaction Date',
             style: theme.textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: colorScheme.onSurfaceVariant,
             ),
           ),
         ),
-        
-        // Date selector row
         Row(
           children: [
-            // Main date chip
+            _NavigationButton(
+              icon: Icons.chevron_left_rounded,
+              onTap: () => widget.onDateChanged(
+                widget.selectedDate.subtract(const Duration(days: 1)),
+              ),
+              color: colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: InkWell(
-                onTap: () => _pickDate(context),
+                onTap: () => _pickDate(context, mode),
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer,
+                    color: colorScheme.primaryContainer.withOpacity(0.5),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: colorScheme.primary.withOpacity(0.3),
@@ -103,50 +152,40 @@ class DateSelector extends StatelessWidget {
                     ),
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.calendar_today_rounded,
-                        size: 20,
+                        mode == CalendarMode.ethiopian
+                            ? Icons.calendar_month
+                            : Icons.calendar_today_rounded,
+                        size: 18,
                         color: colorScheme.primary,
                       ),
                       const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _formatDate(selectedDate),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: colorScheme.onPrimaryContainer,
-                          ),
+                      Text(
+                        _formatDate(widget.selectedDate, mode),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onPrimaryContainer,
+                          fontSize: 15,
                         ),
-                      ),
-                      Icon(
-                        Icons.arrow_drop_down_rounded,
-                        color: colorScheme.primary,
                       ),
                     ],
                   ),
                 ),
               ),
             ),
-            
-            // Quick select chips
-            if (showQuickSelect) ...[
-              const SizedBox(width: 12),
-              _QuickChip(
-                label: 'Today',
-                isSelected: _isToday,
-                onTap: () => onDateChanged(DateTime.now()),
-              ),
-              const SizedBox(width: 8),
-              _QuickChip(
-                label: 'Yesterday',
-                isSelected: _isYesterday,
-                onTap: () => onDateChanged(
-                  DateTime.now().subtract(const Duration(days: 1)),
-                ),
-              ),
-            ],
+            const SizedBox(width: 8),
+            _NavigationButton(
+              icon: Icons.chevron_right_rounded,
+              onTap: _isToday
+                  ? null
+                  : () => widget.onDateChanged(
+                      widget.selectedDate.add(const Duration(days: 1)),
+                    ),
+              color: colorScheme.primary,
+              isDisabled: _isToday,
+            ),
           ],
         ),
       ],
@@ -154,47 +193,41 @@ class DateSelector extends StatelessWidget {
   }
 }
 
-class _QuickChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _NavigationButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final Color color;
+  final bool isDisabled;
 
-  const _QuickChip({
-    required this.label,
-    required this.isSelected,
+  const _NavigationButton({
+    required this.icon,
     required this.onTap,
+    required this.color,
+    this.isDisabled = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Material(
-      color: isSelected ? colorScheme.primary : Colors.transparent,
-      borderRadius: BorderRadius.circular(20),
+      color: isDisabled ? Colors.grey.shade200 : color.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected 
-                  ? colorScheme.primary 
-                  : colorScheme.outline.withOpacity(0.5),
+              color: isDisabled ? Colors.transparent : color.withOpacity(0.2),
               width: 1,
             ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: isSelected 
-                  ? colorScheme.onPrimary 
-                  : colorScheme.onSurfaceVariant,
-            ),
+          child: Icon(
+            icon,
+            color: isDisabled ? Colors.grey.shade400 : color,
+            size: 24,
           ),
         ),
       ),
@@ -202,8 +235,6 @@ class _QuickChip extends StatelessWidget {
   }
 }
 
-/// Helper to convert DateTime to txDateMillis for API calls.
-/// Sets time to noon to avoid timezone issues.
 int dateToTxMillis(DateTime date) {
   return DateTime(date.year, date.month, date.day, 12).millisecondsSinceEpoch;
 }

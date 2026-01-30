@@ -45,6 +45,11 @@ service cloud.firestore {
       }
     }
 
+    // ---- Collection Group Queries ----
+    match /{path=**}/ledger/{txId} {
+      allow read: if isAdmin();
+    }
+
     // ---- Withdraw requests (Functions create + update; clients only read) ----
     match /withdrawRequests/{requestId} {
       function isRequestOwner() {

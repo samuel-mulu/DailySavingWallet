@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'features/auth/auth_gate.dart';
+import 'features/auth/splash_screen.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -11,7 +11,7 @@ class App extends StatelessWidget {
       title: 'Daily Saving Wallet',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      home: const AuthGate(),
+      home: const SplashScreen(),
     );
   }
 
@@ -20,7 +20,7 @@ class App extends StatelessWidget {
     const darkPurple = Color(0xFF7C3AED); // Darker shade for pressed states
     const lightPurple = Color(0xFFA78BFA); // Light purple for accents
     const backgroundColor = Color(0xFFFEFBFF); // Off-white cream background
-    
+
     final colorScheme = ColorScheme.fromSeed(
       seedColor: primaryPurple,
       brightness: Brightness.light,
@@ -56,7 +56,10 @@ class App extends StatelessWidget {
         ),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
         labelStyle: TextStyle(
           color: const Color(0xFF6B7280),
           fontSize: 12,
@@ -66,20 +69,21 @@ class App extends StatelessWidget {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           backgroundColor: primaryPurple,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 56),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           elevation: 2,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           side: BorderSide(color: primaryPurple),
           foregroundColor: primaryPurple,
         ),

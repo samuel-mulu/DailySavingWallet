@@ -19,7 +19,6 @@ class MoneyEtb {
     final abs = cents.abs();
     final whole = abs ~/ 100;
     final frac = (abs % 100).toString().padLeft(2, '0');
-    return '${sign}ETB $whole.$frac';
+    return 'ETB $sign$whole.$frac';
   }
 }
-

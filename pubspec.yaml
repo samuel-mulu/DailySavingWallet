@@ -43,6 +43,9 @@ dependencies:
   crypto: ^3.0.7
   connectivity_plus: ^6.1.0
   uuid: ^4.5.1
+  ethiopian_datetime: ^1.0.0
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:

@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/ui/app_header.dart';
@@ -15,16 +16,18 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
   final _walletRepo = WalletRepo();
   final _customerRepo = CustomerRepo();
 
+  String? get _userName => FirebaseAuth.instance.currentUser?.displayName;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         // Header
-        const AppHeader(
+        AppHeader(
           title: 'Admin Dashboard',
-          subtitle: 'Welcome back',
+          subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
         ),
-        
+
         // Content
         Expanded(
           child: RefreshIndicator(
@@ -39,7 +42,9 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
                     // Pending Approvals
                     Expanded(
                       child: FutureBuilder<int>(
-                        future: _walletRepo.fetchPendingWithdrawCount(limit: 99),
+                        future: _walletRepo.fetchPendingWithdrawCount(
+                          limit: 99,
+                        ),
                         builder: (context, snap) {
                           return _StatCard(
                             title: 'Pending',
@@ -70,9 +75,9 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // Quick Actions Section
                 Text(
                   'Quick Actions',
@@ -83,7 +88,7 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                
+
                 _QuickActionTile(
                   icon: Icons.person_add_rounded,
                   title: 'Add New Customer',
@@ -120,9 +125,9 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
                     );
                   },
                 ),
-                
+
                 const SizedBox(height: 24),
-                
+
                 // Tips Card
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -204,9 +209,7 @@ class _StatCard extends StatelessWidget {
     return Card(
       elevation: 2,
       shadowColor: color.withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -266,9 +269,7 @@ class _QuickActionTile extends StatelessWidget {
     return Card(
       elevation: 1,
       shadowColor: Colors.black12,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
