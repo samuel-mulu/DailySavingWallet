@@ -241,4 +241,48 @@ class WalletRepo {
       if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
     });
   }
+
+  Future<int> fetchTotalSaving() async {
+    try {
+      print('[WalletRepo] fetchTotalSaving: Fetching docs...');
+      final snap = await _db
+          .collection('wallets')
+          .where('balanceCents', isGreaterThan: 0)
+          .get(); // Client-side fetch
+
+      print('[WalletRepo] fetchTotalSaving: Found ${snap.size} docs');
+      int total = 0;
+      for (final doc in snap.docs) {
+        final val = (doc.data()['balanceCents'] as num?)?.toInt() ?? 0;
+        total += val;
+      }
+      print('[WalletRepo] fetchTotalSaving: Calculated Total: $total');
+      return total;
+    } catch (e) {
+      print('[WalletRepo] fetchTotalSaving Error: $e');
+      return 0;
+    }
+  }
+
+  Future<int> fetchTotalCredit() async {
+    try {
+      print('[WalletRepo] fetchTotalCredit: Fetching docs...');
+      final snap = await _db
+          .collection('wallets')
+          .where('balanceCents', isLessThan: 0)
+          .get(); // Client-side fetch
+
+      print('[WalletRepo] fetchTotalCredit: Found ${snap.size} docs');
+      int total = 0;
+      for (final doc in snap.docs) {
+        final val = (doc.data()['balanceCents'] as num?)?.toInt() ?? 0;
+        total += val;
+      }
+      print('[WalletRepo] fetchTotalCredit: Calculated Total: $total');
+      return total;
+    } catch (e) {
+      print('[WalletRepo] fetchTotalCredit Error: $e');
+      return 0;
+    }
+  }
 }

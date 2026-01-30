@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/money/money.dart';
+import '../../../core/settings/calendar_mode.dart';
 import '../../../core/ui/app_header.dart';
 import '../../../core/ui/empty_state.dart';
 import '../../../core/ui/error_state.dart';
@@ -22,6 +23,18 @@ class CustomerHomeTab extends StatefulWidget {
 
 class _CustomerHomeTabState extends State<CustomerHomeTab> {
   final _repo = WalletRepo();
+  CalendarModeService? _calendarService;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCalendarService();
+  }
+
+  Future<void> _initCalendarService() async {
+    final service = await CalendarModeService.getInstance();
+    if (mounted) setState(() => _calendarService = service);
+  }
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
   String? get _userName => FirebaseAuth.instance.currentUser!.displayName;
@@ -35,200 +48,213 @@ class _CustomerHomeTabState extends State<CustomerHomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<String?>(
-      stream: _getCustomerId(),
-      builder: (context, customerIdSnap) {
-        if (customerIdSnap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+    if (_calendarService == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        final customerId = customerIdSnap.data;
-        if (customerId == null) {
-          return Column(
-            children: [
-              AppHeader(
-                title: 'My Wallet',
-                subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
-              ),
-              Expanded(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEE2E2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Icon(
-                            Icons.link_off_rounded,
-                            size: 40,
-                            color: Color(0xFFC62828),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Profile Not Linked',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2D2D2D),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Please contact your administrator to link your account.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: const Color(0xFF6B7280),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
+    return ValueListenableBuilder<CalendarMode>(
+      valueListenable: _calendarService!,
+      builder: (context, mode, _) {
+        return StreamBuilder<String?>(
+          stream: _getCustomerId(),
+          builder: (context, customerIdSnap) {
+            if (customerIdSnap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final customerId = customerIdSnap.data;
+            if (customerId == null) {
+              return Column(
+                children: [
+                  AppHeader(
+                    title: 'My Wallet',
+                    subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
                   ),
-                ),
-              ),
-            ],
-          );
-        }
-
-        return Column(
-          children: [
-            // Standard White Header
-            AppHeader(
-              title: 'My Wallet',
-              subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
-            ),
-
-            Expanded(
-              child: RefreshIndicator(
-                color: const Color(0xFF8B5CF6),
-                onRefresh: () async => setState(() {}),
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: [
-                    const SizedBox(height: 16),
-
-                    // Modern Floating Balance Card
-                    BalanceCard(customerId: customerId),
-
-                    const SizedBox(height: 24),
-
-                    // Quick Actions
-                    Text(
-                      'Quick Actions',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF2D2D2D),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _QuickActionCard(
-                            icon: Icons.request_page_rounded,
-                            label: 'Request\nWithdraw',
-                            color: const Color(0xFF8B5CF6),
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => const WithdrawRequestScreen(),
+                  Expanded(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEE2E2),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(
+                                Icons.link_off_rounded,
+                                size: 40,
+                                color: Color(0xFFC62828),
                               ),
                             ),
-                          ),
+                            const SizedBox(height: 20),
+                            const Text(
+                              'Profile Not Linked',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2D2D2D),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Please contact your administrator to link your account.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: const Color(0xFF6B7280),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _QuickActionCard(
-                            icon: Icons.history_rounded,
-                            label: 'View\nHistory',
-                            color: const Color(0xFF10B981),
-                            onTap: () {
-                              // Navigate to history tab would require a callback
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Go to History tab'),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
+                  ),
+                ],
+              );
+            }
 
-                    const SizedBox(height: 24),
+            return Column(
+              children: [
+                // Standard White Header
+                AppHeader(
+                  title: 'My Wallet',
+                  subtitle: 'Welcome back ${_userName ?? ''}'.trim(),
+                ),
 
-                    // Recent Transactions
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Expanded(
+                  child: RefreshIndicator(
+                    color: const Color(0xFF8B5CF6),
+                    onRefresh: () async => setState(() {}),
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       children: [
+                        const SizedBox(height: 16),
+
+                        // Modern Floating Balance Card
+                        BalanceCard(customerId: customerId),
+
+                        const SizedBox(height: 24),
+
+                        // Quick Actions
                         Text(
-                          'Recent Transactions',
+                          'Quick Actions',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: const Color(0xFF2D2D2D),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    FutureBuilder(
-                      future: _repo.fetchRecentLedger(customerId, limit: 5),
-                      builder: (context, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                color: Color(0xFF8B5CF6),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _QuickActionCard(
+                                icon: Icons.request_page_rounded,
+                                label: 'Request\nWithdraw',
+                                color: const Color(0xFF8B5CF6),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const WithdrawRequestScreen(),
+                                  ),
+                                ),
                               ),
                             ),
-                          );
-                        }
-                        if (snap.hasError) {
-                          return ErrorState(
-                            title: 'Could not load transactions',
-                            message: snap.error.toString(),
-                            onRetry: () => setState(() {}),
-                          );
-                        }
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _QuickActionCard(
+                                icon: Icons.history_rounded,
+                                label: 'View\nHistory',
+                                color: const Color(0xFF10B981),
+                                onTap: () {
+                                  // Navigate to history tab would require a callback
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Go to History tab'),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
 
-                        final items = snap.data ?? const [];
-                        if (items.isEmpty) {
-                          return const EmptyState(
-                            icon: Icons.receipt_long_outlined,
-                            title: 'No transactions yet',
-                            message: 'Your wallet activity will appear here.',
-                          );
-                        }
+                        const SizedBox(height: 24),
 
-                        return Card(
-                          elevation: 2,
-                          shadowColor: Colors.black12,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            children: [
-                              for (final tx in items) TransactionTile(tx: tx),
-                            ],
-                          ),
-                        );
-                      },
+                        // Recent Transactions
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Recent Transactions',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF2D2D2D),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        FutureBuilder(
+                          future: _repo.fetchRecentLedger(customerId, limit: 5),
+                          builder: (context, snap) {
+                            if (snap.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: Color(0xFF8B5CF6),
+                                  ),
+                                ),
+                              );
+                            }
+                            if (snap.hasError) {
+                              return ErrorState(
+                                title: 'Could not load transactions',
+                                message: snap.error.toString(),
+                                onRetry: () => setState(() {}),
+                              );
+                            }
+
+                            final items = snap.data ?? const [];
+                            if (items.isEmpty) {
+                              return const EmptyState(
+                                icon: Icons.receipt_long_outlined,
+                                title: 'No transactions yet',
+                                message:
+                                    'Your wallet activity will appear here.',
+                              );
+                            }
+
+                            return Card(
+                              elevation: 2,
+                              shadowColor: Colors.black12,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Column(
+                                children: [
+                                  for (final tx in items)
+                                    TransactionTile(tx: tx, calendarMode: mode),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );

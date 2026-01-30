@@ -75,6 +75,95 @@ class _AdminHomeTabState extends State<AdminHomeTab> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                // Financial Stats Row 1
+                Row(
+                  children: [
+                    Expanded(
+                      child: FutureBuilder<int>(
+                        future: _walletRepo.fetchTotalSaving(),
+                        builder: (context, snap) {
+                          // Saving is positive
+                          final val = snap.data ?? 0;
+                          return _StatCard(
+                            title: 'Total',
+                            subtitle: 'Saving',
+                            value: (val / 100).toStringAsFixed(0),
+                            icon: Icons.account_balance_rounded,
+                            color: const Color(0xFF10B981),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<int>(
+                        future: _walletRepo.fetchTotalCredit(),
+                        builder: (context, snap) {
+                          // Credit is negative in DB.
+                          // Display as positive for "Total Credit" context?
+                          // Or display as negative?
+                          // User said "total revenue (total saving - the credit)".
+                          // If credit is -500. Saving 1000. Rev = 1000 - (-500)?? No.
+                          // Likely "Credit" means DEBT (positive magnitude).
+                          // If DB has -500.
+                          // I will display |-500| = 500.
+                          final val = (snap.data ?? 0).abs();
+                          return _StatCard(
+                            title: 'Total',
+                            subtitle: 'Credit',
+                            value: (val / 100).toStringAsFixed(0),
+                            icon: Icons.credit_card_rounded,
+                            color: const Color(0xFFEF5350),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Financial Stats Row 2 (Revenue)
+                FutureBuilder<List<int>>(
+                  future: Future.wait([
+                    _walletRepo.fetchTotalSaving(),
+                    _walletRepo.fetchTotalCredit(),
+                  ]),
+                  builder: (context, snap) {
+                    final saving = snap.data?[0] ?? 0;
+                    final credit = snap.data?[1] ?? 0;
+                    // Revenue = Saving - Credit
+                    // If Credit in DB is NEGATIVE (e.g. -100).
+                    // User said "wallets have credit and saving".
+                    // "total revune(total saving - the crefit)".
+                    // This implies Revenue = Net Value?
+                    // If I have 100 saving, and -50 credit. Net = 50.
+                    // "Saving - Credit" -> 100 - 50 = 50. (if Credit is magnitude)
+                    // "Saving + Credit" -> 100 + (-50) = 50. (if Credit is raw)
+                    // So standard Net = Sum.
+                    // But User's formula "saving - credit" suggests they think of credit as a positive number TO BE SUBTRACTED?
+                    // OR maybe they mean "Revenue = Saving (Assets) - Credit (Outstanding Loans)"?
+                    // Let's assume Revenue = Saving + Credit (raw sum) which is Net Balance.
+                    // Examples:
+                    // User A: +200. User B: -50.
+                    // Total Saving: 200.
+                    // Total Credit: -50 (or 50).
+                    // "Revenue" = 150.
+                    // Formula: 200 + (-50) = 150.
+                    // If I use user's string "saving - credit":
+                    // 200 - 50 = 150.
+                    // So `saving - credit.abs()` or `saving + credit`.
+                    // I will use `saving + credit` (since credit is negative).
+
+                    final revenue = saving + credit;
+                    return _StatCard(
+                      title: 'Total',
+                      subtitle: 'Revenue',
+                      value: (revenue / 100).toStringAsFixed(0),
+                      icon: Icons.monetization_on_rounded,
+                      color: const Color(0xFF0EA5E9),
+                    );
+                  },
+                ),
 
                 const SizedBox(height: 20),
 
