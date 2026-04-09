@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/routing/routes.dart';
 import '../auth/providers/auth_providers.dart';
 
 class SuperAdminDashboard extends ConsumerWidget {
@@ -13,7 +14,12 @@ class SuperAdminDashboard extends ConsumerWidget {
         title: const Text('SuperAdmin Dashboard'),
         actions: [
           IconButton(
-            onPressed: () => ref.read(authClientProvider).signOut(),
+            onPressed: () async {
+              await ref.read(authClientProvider).signOut();
+              if (context.mounted) {
+                AppRoutes.goToAuthGate(context);
+              }
+            },
             icon: const Icon(Icons.logout),
           ),
         ],

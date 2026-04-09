@@ -6,22 +6,16 @@ import '../api/withdrawal_api.dart';
 import 'models.dart';
 
 class WalletRepo {
-  WalletRepo({
-    WalletApi? walletApi,
-    WithdrawalApi? withdrawalApi,
-    Uuid? uuid,
-  }) : _walletApi = walletApi ?? WalletApi(),
-       _withdrawalApi = withdrawalApi ?? WithdrawalApi(),
-       _uuid = uuid ?? const Uuid();
+  WalletRepo({WalletApi? walletApi, WithdrawalApi? withdrawalApi, Uuid? uuid})
+    : _walletApi = walletApi ?? WalletApi(),
+      _withdrawalApi = withdrawalApi ?? WithdrawalApi(),
+      _uuid = uuid ?? const Uuid();
 
   final WalletApi _walletApi;
   final WithdrawalApi _withdrawalApi;
   final Uuid _uuid;
 
-  Future<WalletSnapshot?> fetchWallet(
-    String customerId, {
-    String? walletId,
-  }) {
+  Future<WalletSnapshot?> fetchWallet(String customerId, {String? walletId}) {
     return _walletApi.fetchWallet(customerId, walletId: walletId);
   }
 
@@ -59,20 +53,29 @@ class WalletRepo {
     return page.items;
   }
 
-  Future<List<WithdrawRequest>> fetchPendingWithdrawRequests({
-    int limit = 20,
-  }) {
+  Future<List<WithdrawRequest>> fetchPendingWithdrawRequests({int limit = 20}) {
     return _withdrawalApi.fetchPendingWithdrawals(limit: limit);
+  }
+
+  Future<List<WithdrawRequest>> fetchWithdrawRequests({
+    String? customerId,
+    String? status,
+    int limit = 20,
+    String? cursor,
+  }) {
+    return _withdrawalApi.listWithdrawals(
+      customerId: customerId,
+      status: status,
+      limit: limit,
+      cursor: cursor,
+    );
   }
 
   Future<List<WithdrawRequest>> fetchCustomerWithdrawRequests(
     String customerId, {
     int limit = 3,
   }) {
-    return _withdrawalApi.listWithdrawals(
-      customerId: customerId,
-      limit: limit,
-    );
+    return _withdrawalApi.listWithdrawals(customerId: customerId, limit: limit);
   }
 
   Future<int> fetchPendingWithdrawCount({int limit = 20}) async {
@@ -163,7 +166,7 @@ class WalletRepo {
   }
 
   Future<({WalletStatusHealth health, List<WalletStatusEvent> events})>
-      fetchWalletStatusHistory({
+  fetchWalletStatusHistory({
     required String customerId,
     required String walletId,
   }) {

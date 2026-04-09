@@ -4,31 +4,55 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/data/stale_fetch_state.dart';
 import '../../core/money/money.dart';
+import '../../core/ui/empty_state.dart';
+import '../../core/ui/filter_count_chip.dart';
+import '../../data/customers/customer_model.dart';
 import '../../data/customers/customer_repo.dart';
 import '../../data/wallet/models.dart';
 import '../../data/wallet/wallet_repo.dart';
 import '../withdrawals/pending_withdrawals_provider.dart';
+import 'customers/customer_detail_screen.dart';
+import 'customers/widgets/customer_profile_avatar.dart';
 
 class WithdrawApprovalsScreen extends ConsumerStatefulWidget {
-  const WithdrawApprovalsScreen({super.key});
+  const WithdrawApprovalsScreen({super.key, this.showAppBar = true});
+
+  final bool showAppBar;
 
   @override
   ConsumerState<WithdrawApprovalsScreen> createState() =>
       _WithdrawApprovalsScreenState();
 }
 
+enum _ApprovalQueue { pending, approved, rejected }
+
 class _WithdrawApprovalsScreenState
     extends ConsumerState<WithdrawApprovalsScreen> {
   final _repo = WalletRepo();
-  final Set<String> _busyIds = {};
+  final _customerRepo = CustomerRepo();
+  final _busyIds = <String>{};
   final _uuid = const Uuid();
+  final _customerFutures = <String, Future<Customer?>>{};
+  final _walletFutures = <String, Future<WalletSnapshot?>>{};
+
+  _ApprovalQueue _queue = _ApprovalQueue.pending;
+  late Future<List<WithdrawRequest>> _approvedFuture;
+  late Future<List<WithdrawRequest>> _rejectedFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _approvedFuture = _loadRequestsByStatus('APPROVED');
+    _rejectedFuture = _loadRequestsByStatus('REJECTED');
+  }
 
   bool _isBusy(String id) => _busyIds.contains(id);
 
-  void _setBusy(String id, bool v) {
+  void _setBusy(String id, bool value) {
     setState(() {
-      if (v) {
+      if (value) {
         _busyIds.add(id);
       } else {
         _busyIds.remove(id);
@@ -36,16 +60,57 @@ class _WithdrawApprovalsScreenState
     });
   }
 
-  Future<int?> _confirmApprove(WithdrawRequest r) async {
-    final customer = await CustomerRepo().getCustomer(r.customerId);
-    final walletSnap = await WalletRepo().fetchWallet(
-      r.customerId,
-      walletId: r.walletId,
+  Future<List<WithdrawRequest>> _loadRequestsByStatus(String status) async {
+    final items = await _repo.fetchWithdrawRequests(status: status, limit: 60);
+    final sorted = [...items];
+    sorted.sort((a, b) {
+      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
+    });
+    return sorted;
+  }
+
+  void _refreshReviewed() {
+    setState(() {
+      _approvedFuture = _loadRequestsByStatus('APPROVED');
+      _rejectedFuture = _loadRequestsByStatus('REJECTED');
+    });
+  }
+
+  Future<void> _refreshAll() async {
+    await ref
+        .read(pendingWithdrawalsStaleProvider.notifier)
+        .refresh(force: true);
+    _refreshReviewed();
+  }
+
+  Future<Customer?> _loadCustomer(String customerId) {
+    return _customerFutures.putIfAbsent(
+      customerId,
+      () => _customerRepo.getCustomer(customerId),
     );
+  }
+
+  Future<WalletSnapshot?> _loadWallet(WithdrawRequest request) {
+    final walletId = request.walletId;
+    if (walletId == null || walletId.isEmpty) {
+      return Future.value(null);
+    }
+    final key = '${request.customerId}:$walletId';
+    return _walletFutures.putIfAbsent(
+      key,
+      () => _repo.fetchWallet(request.customerId, walletId: walletId),
+    );
+  }
+
+  Future<int?> _confirmApprove(WithdrawRequest request) async {
+    final customer = await _loadCustomer(request.customerId);
+    final wallet = await _loadWallet(request);
     if (!mounted) return null;
 
-    final currentBalance = walletSnap?.balanceCents ?? 0;
-    final ok = await showDialog<int?>(
+    final currentBalance = wallet?.balanceCents ?? 0;
+    return showDialog<int?>(
       context: context,
       builder: (context) {
         final feeCtrl = TextEditingController(text: '0.00');
@@ -57,10 +122,10 @@ class _WithdrawApprovalsScreenState
             } on FormatException {
               feeCents = -1;
             }
-            final totalDebit = r.amountCents + (feeCents < 0 ? 0 : feeCents);
+            final totalDebit =
+                request.amountCents + (feeCents < 0 ? 0 : feeCents);
             final afterBalance = currentBalance - totalDebit;
-            final willBeNegative = afterBalance < 0;
-            final limitCents = walletSnap?.creditLimitCents ?? 0;
+            final limitCents = wallet?.creditLimitCents ?? 0;
             final debtCents = afterBalance < 0 ? -afterBalance : 0;
             final exceedsLimit = limitCents > 0 && debtCents > limitCents;
 
@@ -73,19 +138,26 @@ class _WithdrawApprovalsScreenState
                   if (customer != null) ...[
                     Text(
                       customer.fullName,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     Text(customer.companyName),
                     const Divider(height: 16),
                   ],
-                  Text('Requested: ${MoneyEtb.formatCents(r.amountCents)}'),
+                  Text(
+                    'Requested: ${MoneyEtb.formatCents(request.amountCents)}',
+                  ),
+                  if (wallet != null) ...[
+                    const SizedBox(height: 6),
+                    Text('Wallet: ${wallet.label}'),
+                  ],
                   const SizedBox(height: 8),
                   TextField(
                     controller: feeCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     decoration: const InputDecoration(
                       labelText: 'Approval fee (ETB)',
-                      hintText: 'e.g. 10.50',
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (_) => setLocalState(() {}),
@@ -93,61 +165,19 @@ class _WithdrawApprovalsScreenState
                   const SizedBox(height: 8),
                   Text('Total debit: ${MoneyEtb.formatCents(totalDebit)}'),
                   const SizedBox(height: 8),
-                  Text('Reason: ${r.reason}'),
-                  const SizedBox(height: 8),
-                  Text('Current balance: ${MoneyEtb.formatCents(currentBalance)}'),
-                  Text(
-                    'After balance: ${MoneyEtb.formatCents(afterBalance)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: exceedsLimit
-                          ? Colors.red
-                          : (willBeNegative ? Colors.orange : Colors.green),
-                    ),
-                  ),
-                  if (willBeNegative) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade100,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.warning, color: Colors.orange, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Debt check',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            limitCents > 0
-                                ? 'Credit limit: ${MoneyEtb.formatCents(limitCents)}'
-                                : 'No credit limit (unlimited)',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          if (limitCents > 0)
-                            Text(
-                              exceedsLimit
-                                  ? 'Exceeds limit by ${MoneyEtb.formatCents(debtCents - limitCents)}'
-                                  : 'Within limit',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: exceedsLimit ? Colors.red : Colors.green,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                        ],
+                  Text('After balance: ${MoneyEtb.formatCents(afterBalance)}'),
+                  if (afterBalance < 0)
+                    Text(
+                      limitCents > 0
+                          ? exceedsLimit
+                                ? 'Exceeds limit by ${MoneyEtb.formatCents(debtCents - limitCents)}'
+                                : 'Within credit limit'
+                          : 'Uses open credit balance',
+                      style: TextStyle(
+                        color: exceedsLimit ? Colors.red : Colors.orange,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
                 ],
               ),
               actions: [
@@ -159,9 +189,6 @@ class _WithdrawApprovalsScreenState
                   onPressed: (feeCents < 0 || exceedsLimit)
                       ? null
                       : () => Navigator.pop(context, feeCents),
-                  style: willBeNegative
-                      ? FilledButton.styleFrom(backgroundColor: Colors.orange)
-                      : null,
                   child: const Text('Approve'),
                 ),
               ],
@@ -170,12 +197,11 @@ class _WithdrawApprovalsScreenState
         );
       },
     );
-    return ok;
   }
 
-  Future<String?> _askRejectNote(BuildContext context) async {
+  Future<String?> _askRejectNote() async {
     final ctrl = TextEditingController();
-    final res = await showDialog<String?>(
+    final result = await showDialog<String?>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Reject request'),
@@ -185,7 +211,10 @@ class _WithdrawApprovalsScreenState
           maxLines: 2,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, ctrl.text.trim()),
             child: const Text('Continue'),
@@ -194,11 +223,13 @@ class _WithdrawApprovalsScreenState
       ),
     );
     ctrl.dispose();
-    return res;
+    return result;
   }
 
-  Future<bool> _confirmReject(BuildContext context, WithdrawRequest r, String? note) async {
-    final ok = await showDialog<bool>(
+  Future<bool> _confirmReject(WithdrawRequest request, String? note) async {
+    final customer = await _loadCustomer(request.customerId);
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm reject'),
@@ -206,11 +237,11 @@ class _WithdrawApprovalsScreenState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Customer: ${r.customerId}'),
+            Text('Customer: ${customer?.fullName ?? request.customerId}'),
             const SizedBox(height: 8),
-            Text('Amount: ${MoneyEtb.formatCents(r.amountCents)}'),
+            Text('Amount: ${MoneyEtb.formatCents(request.amountCents)}'),
             const SizedBox(height: 8),
-            Text('Reason: ${r.reason}'),
+            Text('Reason: ${request.reason}'),
             if (note != null && note.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Note: ${note.trim()}'),
@@ -218,227 +249,1006 @@ class _WithdrawApprovalsScreenState
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Reject')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Reject'),
+          ),
         ],
       ),
     );
-    return ok == true;
+    return result == true;
   }
 
-  void _snack(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  Future<void> _approveRequest(
+    WithdrawRequest request, {
+    VoidCallback? onCompleted,
+  }) async {
+    final fee = await _confirmApprove(request);
+    if (!mounted || fee == null) return;
+    _setBusy(request.id, true);
+    try {
+      await _repo.approveWithdraw(
+        request.id,
+        idempotencyKey: _uuid.v4(),
+        approvalFeeCents: fee,
+      );
+      ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);
+      unawaited(
+        ref.read(pendingWithdrawalsStaleProvider.notifier).refresh(force: true),
+      );
+      _refreshReviewed();
+      _snack('Approved.');
+      onCompleted?.call();
+    } catch (e) {
+      await ref
+          .read(pendingWithdrawalsStaleProvider.notifier)
+          .refresh(force: true);
+      _snack(e.toString());
+    } finally {
+      if (mounted) _setBusy(request.id, false);
+    }
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    final stale = ref.watch(pendingWithdrawalsStaleProvider);
-    final items = stale.data ?? const <WithdrawRequest>[];
+  Future<void> _rejectRequest(
+    WithdrawRequest request, {
+    VoidCallback? onCompleted,
+  }) async {
+    final note = await _askRejectNote();
+    if (!mounted || note == null) return;
+    final ok = await _confirmReject(request, note);
+    if (!mounted || !ok) return;
+    _setBusy(request.id, true);
+    try {
+      await _repo.rejectWithdraw(request.id, note: note);
+      ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);
+      unawaited(
+        ref.read(pendingWithdrawalsStaleProvider.notifier).refresh(force: true),
+      );
+      _refreshReviewed();
+      _snack('Rejected.');
+      onCompleted?.call();
+    } catch (e) {
+      await ref
+          .read(pendingWithdrawalsStaleProvider.notifier)
+          .refresh(force: true);
+      _snack(e.toString());
+    } finally {
+      if (mounted) _setBusy(request.id, false);
+    }
+  }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Withdraw Approvals')),
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(pendingWithdrawalsStaleProvider.notifier).refresh(force: true),
-        child: stale.data == null && stale.isRefreshing
-            ? ListView(
-                children: const [
-                  SizedBox(height: 120),
-                  Center(child: CircularProgressIndicator()),
-                ],
-              )
-            : stale.error != null && items.isEmpty
-            ? ListView(
-                children: [
-                  SizedBox(height: 120),
-                  Center(child: Text(stale.error.toString())),
-                ],
-              )
-            : items.isEmpty
-            ? ListView(
-                children: const [
-                  SizedBox(height: 120),
-                  Center(child: Text('No pending requests.')),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: items.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 8),
-                itemBuilder: (context, i) {
-              final r = items[i];
-              final busy = _isBusy(r.id);
-              return Card(
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
+  void _snack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _statusLabel(String status) {
+    switch (status.toUpperCase()) {
+      case 'APPROVED':
+        return 'Approved';
+      case 'REJECTED':
+        return 'Rejected';
+      default:
+        return 'Pending';
+    }
+  }
+
+  Color _statusColor(String status, ThemeData theme) {
+    switch (status.toUpperCase()) {
+      case 'APPROVED':
+        return const Color(0xFF10B981);
+      case 'REJECTED':
+        return theme.colorScheme.error;
+      default:
+        return const Color(0xFFF59E0B);
+    }
+  }
+
+  String _formatDate(BuildContext context, DateTime? value) {
+    if (value == null) return 'Not available';
+    final localizations = MaterialLocalizations.of(context);
+    return '${localizations.formatMediumDate(value)} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(value))}';
+  }
+
+  Future<_RequestSheetData> _loadSheetData(WithdrawRequest request) async {
+    final customer = await _loadCustomer(request.customerId);
+    final wallet = await _loadWallet(request);
+    return _RequestSheetData(customer: customer, wallet: wallet);
+  }
+
+  Future<void> _showRequestModal(WithdrawRequest request) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.88,
+          child: FutureBuilder<_RequestSheetData>(
+            future: _loadSheetData(request),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final data =
+                  snap.data ??
+                  const _RequestSheetData(customer: null, wallet: null);
+              final customer = data.customer;
+              final wallet = data.wallet;
+              final statusColor = _statusColor(
+                request.status,
+                Theme.of(context),
+              );
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
+                          if (customer != null)
+                            CustomerProfileAvatar(
+                              customer: customer,
+                              radius: 28,
+                              enablePreview: true,
+                            )
+                          else
+                            CircleAvatar(
+                              radius: 28,
+                              backgroundColor: statusColor.withValues(
+                                alpha: 0.12,
+                              ),
+                              child: Icon(
+                                Icons.person_outline,
+                                color: statusColor,
+                              ),
+                            ),
+                          const SizedBox(width: 14),
                           Expanded(
-                            child: FutureBuilder(
-                              future: CustomerRepo().getCustomer(r.customerId),
-                              builder: (context, snap) {
-                                final customer = snap.data;
-                                return Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      customer?.fullName ?? 'Loading...',
-                                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                    ),
-                                    if (customer != null) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        customer.companyName,
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                              color: Theme.of(context).colorScheme.secondary,
-                                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  customer?.fullName ?? request.customerId,
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  customer == null
+                                      ? 'Customer details unavailable'
+                                      : '${customer.companyName} - ${customer.phone}',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant,
                                       ),
-                                    ],
-                                  ],
-                                );
-                              },
+                                ),
+                              ],
                             ),
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                MoneyEtb.formatCents(r.amountCents),
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.error,
-                                    ),
-                              ),
-                              if (busy)
-                                const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                            ],
+                          _StatusChip(
+                            label: _statusLabel(request.status),
+                            color: statusColor,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.message_outlined,
-                              size: 16,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _MetricCard(
+                              label: 'Requested',
+                              value: MoneyEtb.formatCents(request.amountCents),
+                              color: statusColor,
                             ),
-                            const SizedBox(width: 8),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _MetricCard(
+                              label: 'Fee',
+                              value: MoneyEtb.formatCents(
+                                request.approvalFeeCents,
+                              ),
+                              color: const Color(0xFFF59E0B),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _MetricCard(
+                              label: 'Total Debit',
+                              value: MoneyEtb.formatCents(
+                                request.approvedTotalDebitCents > 0
+                                    ? request.approvedTotalDebitCents
+                                    : request.amountCents +
+                                          request.approvalFeeCents,
+                              ),
+                              color: const Color(0xFF0EA5E9),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _SheetSection(
+                        title: 'Request Note',
+                        child: Text(request.reason),
+                      ),
+                      const SizedBox(height: 12),
+                      _SheetSection(
+                        title: 'Request Details',
+                        child: Column(
+                          children: [
+                            _DetailRow(
+                              label: 'Requested on',
+                              value: _formatDate(context, request.createdAt),
+                            ),
+                            _DetailRow(
+                              label: 'Updated on',
+                              value: _formatDate(context, request.updatedAt),
+                            ),
+                            _DetailRow(
+                              label: 'Wallet',
+                              value:
+                                  wallet?.label ?? 'Primary / default wallet',
+                            ),
+                            if (wallet != null)
+                              _DetailRow(
+                                label: 'Wallet balance',
+                                value: MoneyEtb.formatCents(
+                                  wallet.balanceCents,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (customer != null) ...[
+                        const SizedBox(height: 12),
+                        _SheetSection(
+                          title: 'Customer Snapshot',
+                          child: Column(
+                            children: [
+                              _DetailRow(
+                                label: 'Balance',
+                                value: MoneyEtb.formatCents(
+                                  customer.balanceCents,
+                                ),
+                              ),
+                              _DetailRow(
+                                label: 'Daily target',
+                                value: MoneyEtb.formatCents(
+                                  customer.dailyTargetCents,
+                                ),
+                              ),
+                              _DetailRow(
+                                label: 'Credit limit',
+                                value: MoneyEtb.formatCents(
+                                  customer.creditLimitCents,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      if (_queue == _ApprovalQueue.pending) ...[
+                        Row(
+                          children: [
                             Expanded(
-                              child: Text(
-                                r.reason,
-                                style: Theme.of(context).textTheme.bodyMedium,
+                              child: FilledButton.icon(
+                                onPressed: _isBusy(request.id)
+                                    ? null
+                                    : () => _approveRequest(
+                                        request,
+                                        onCompleted: () =>
+                                            Navigator.of(sheetContext).pop(),
+                                      ),
+                                icon: const Icon(Icons.check),
+                                label: const Text('Approve'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.green.shade600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _isBusy(request.id)
+                                    ? null
+                                    : () => _rejectRequest(
+                                        request,
+                                        onCompleted: () =>
+                                            Navigator.of(sheetContext).pop(),
+                                      ),
+                                icon: const Icon(Icons.close),
+                                label: const Text('Reject'),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: busy
-                                  ? null
-                                  : () async {
-                                      final fee = await _confirmApprove(r);
-                                      if (!mounted) return;
-                                      if (fee == null) return;
-                                      _setBusy(r.id, true);
-                                      try {
-                                        await _repo.approveWithdraw(
-                                          r.id,
-                                          idempotencyKey: _uuid.v4(),
-                                          approvalFeeCents: fee,
-                                        );
-                                        ref
-                                            .read(pendingWithdrawalsStaleProvider.notifier)
-                                            .removeById(r.id);
-                                        unawaited(
-                                          ref
-                                              .read(pendingWithdrawalsStaleProvider.notifier)
-                                              .refresh(force: true),
-                                        );
-                                        _snack('Approved.');
-                                      } catch (e) {
-                                        await ref
-                                            .read(pendingWithdrawalsStaleProvider.notifier)
-                                            .refresh(force: true);
-                                        _snack(e.toString());
-                                      } finally {
-                                        if (mounted) _setBusy(r.id, false);
-                                      }
-                                    },
-                              icon: const Icon(Icons.check),
-                              label: const Text('Approve'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.green.shade600,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: busy
-                                  ? null
-                                  : () async {
-                                      final note = await _askRejectNote(this.context);
-                                      if (!mounted) return;
-                                      if (note == null) return;
-
-                                      final ok = await _confirmReject(this.context, r, note);
-                                      if (!mounted) return;
-                                      if (!ok) return;
-                                      _setBusy(r.id, true);
-                                      try {
-                                        await _repo.rejectWithdraw(r.id, note: note);
-                                        ref
-                                            .read(pendingWithdrawalsStaleProvider.notifier)
-                                            .removeById(r.id);
-                                        unawaited(
-                                          ref
-                                              .read(pendingWithdrawalsStaleProvider.notifier)
-                                              .refresh(force: true),
-                                        );
-                                        _snack('Rejected.');
-                                      } catch (e) {
-                                        await ref
-                                            .read(pendingWithdrawalsStaleProvider.notifier)
-                                            .refresh(force: true);
-                                        _snack(e.toString());
-                                      } finally {
-                                        if (mounted) _setBusy(r.id, false);
-                                      }
-                                    },
-                              icon: const Icon(Icons.close),
-                              label: const Text('Reject'),
-                            ),
-                          ),
-                        ],
+                        const SizedBox(height: 10),
+                      ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: customer == null
+                              ? null
+                              : () {
+                                  Navigator.of(sheetContext).pop();
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => CustomerDetailScreen(
+                                        customerId: customer.customerId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(Icons.open_in_new),
+                          label: const Text('Open Full Customer'),
+                        ),
                       ),
                     ],
                   ),
                 ),
               );
-                },
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stale = ref.watch(pendingWithdrawalsStaleProvider);
+    final pendingItems = stale.data ?? const <WithdrawRequest>[];
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: widget.showAppBar
+          ? AppBar(title: const Text('Withdraw Approvals'))
+          : null,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  FilterCountChip(
+                    label: 'Pending',
+                    count: pendingItems.length,
+                    selected: _queue == _ApprovalQueue.pending,
+                    icon: Icons.pending_actions_outlined,
+                    onTap: () =>
+                        setState(() => _queue = _ApprovalQueue.pending),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterCountChip(
+                    label: 'Approved',
+                    count: null,
+                    selected: _queue == _ApprovalQueue.approved,
+                    icon: Icons.check_circle_outline,
+                    onTap: () =>
+                        setState(() => _queue = _ApprovalQueue.approved),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterCountChip(
+                    label: 'Rejected',
+                    count: null,
+                    selected: _queue == _ApprovalQueue.rejected,
+                    icon: Icons.cancel_outlined,
+                    onTap: () =>
+                        setState(() => _queue = _ApprovalQueue.rejected),
+                  ),
+                ],
               ),
+            ),
+          ),
+          Expanded(
+            child: switch (_queue) {
+              _ApprovalQueue.pending => _buildPendingView(stale, pendingItems),
+              _ApprovalQueue.approved => _buildReviewedView(
+                future: _approvedFuture,
+                emptyTitle: 'No approved requests yet',
+                emptyMessage:
+                    'Approved withdrawals will appear here after review.',
+              ),
+              _ApprovalQueue.rejected => _buildReviewedView(
+                future: _rejectedFuture,
+                emptyTitle: 'No rejected requests yet',
+                emptyMessage:
+                    'Rejected withdrawals will appear here after review.',
+              ),
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingView(
+    StaleFetchState<List<WithdrawRequest>> stale,
+    List<WithdrawRequest> items,
+  ) {
+    if (stale.data == null && stale.isRefreshing) {
+      return ListView(
+        children: const [
+          SizedBox(height: 120),
+          Center(child: CircularProgressIndicator()),
+        ],
+      );
+    }
+
+    if (stale.error != null && items.isEmpty) {
+      return ListView(
+        children: [
+          const SizedBox(height: 120),
+          Center(child: Text(stale.error.toString())),
+        ],
+      );
+    }
+
+    if (items.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _refreshAll,
+        child: ListView(
+          children: const [
+            SizedBox(height: 80),
+            EmptyState(
+              icon: Icons.task_alt_outlined,
+              title: 'No pending requests',
+              message: 'New withdrawal requests will appear here for approval.',
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refreshAll,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (stale.isRefreshing)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          _QueueSummaryCard(
+            title: 'Pending approvals',
+            subtitle:
+                '${items.length} request${items.length == 1 ? '' : 's'} waiting for review',
+            color: const Color(0xFFF59E0B),
+          ),
+          const SizedBox(height: 12),
+          ..._buildRequestCards(items, showActions: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewedView({
+    required Future<List<WithdrawRequest>> future,
+    required String emptyTitle,
+    required String emptyMessage,
+  }) {
+    return FutureBuilder<List<WithdrawRequest>>(
+      future: future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return ListView(
+            children: const [
+              SizedBox(height: 120),
+              Center(child: CircularProgressIndicator()),
+            ],
+          );
+        }
+
+        if (snap.hasError) {
+          return ListView(
+            children: [
+              const SizedBox(height: 120),
+              Center(child: Text('${snap.error}')),
+            ],
+          );
+        }
+
+        final items = snap.data ?? const <WithdrawRequest>[];
+        if (items.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _refreshAll,
+            child: ListView(
+              children: [
+                const SizedBox(height: 80),
+                EmptyState(
+                  icon: _queue == _ApprovalQueue.approved
+                      ? Icons.check_circle_outline
+                      : Icons.cancel_outlined,
+                  title: emptyTitle,
+                  message: emptyMessage,
+                ),
+              ],
+            ),
+          );
+        }
+
+        final summaryColor = _queue == _ApprovalQueue.approved
+            ? const Color(0xFF10B981)
+            : Theme.of(context).colorScheme.error;
+
+        return RefreshIndicator(
+          onRefresh: _refreshAll,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              _QueueSummaryCard(
+                title: _queue == _ApprovalQueue.approved
+                    ? 'Approved withdrawals'
+                    : 'Rejected withdrawals',
+                subtitle:
+                    '${items.length} request${items.length == 1 ? '' : 's'} in this queue',
+                color: summaryColor,
+              ),
+              const SizedBox(height: 12),
+              ..._buildRequestCards(items, showActions: false),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildRequestCards(
+    List<WithdrawRequest> items, {
+    required bool showActions,
+  }) {
+    return [
+      for (var index = 0; index < items.length; index++) ...[
+        _RequestCard(
+          request: items[index],
+          busy: _isBusy(items[index].id),
+          customerFuture: _loadCustomer(items[index].customerId),
+          statusColor: _statusColor(items[index].status, Theme.of(context)),
+          statusLabel: _statusLabel(items[index].status),
+          showActions: showActions,
+          onTap: () => _showRequestModal(items[index]),
+          onApprove: showActions ? () => _approveRequest(items[index]) : null,
+          onReject: showActions ? () => _rejectRequest(items[index]) : null,
+        ),
+        if (index != items.length - 1) const SizedBox(height: 12),
+      ],
+    ];
+  }
+}
+
+class _RequestSheetData {
+  const _RequestSheetData({required this.customer, required this.wallet});
+
+  final Customer? customer;
+  final WalletSnapshot? wallet;
+}
+
+class _RequestCard extends StatelessWidget {
+  const _RequestCard({
+    required this.request,
+    required this.busy,
+    required this.customerFuture,
+    required this.statusColor,
+    required this.statusLabel,
+    required this.showActions,
+    required this.onTap,
+    this.onApprove,
+    this.onReject,
+  });
+
+  final WithdrawRequest request;
+  final bool busy;
+  final Future<Customer?> customerFuture;
+  final Color statusColor;
+  final String statusLabel;
+  final bool showActions;
+  final VoidCallback onTap;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.surface,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: statusColor.withValues(alpha: 0.18)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FutureBuilder<Customer?>(
+                  future: customerFuture,
+                  builder: (context, snap) {
+                    final customer = snap.data;
+                    return Row(
+                      children: [
+                        if (customer != null)
+                          CustomerProfileAvatar(
+                            customer: customer,
+                            radius: 22,
+                            enablePreview: true,
+                          )
+                        else
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: statusColor.withValues(
+                              alpha: 0.12,
+                            ),
+                            child: Icon(
+                              Icons.person_outline,
+                              color: statusColor,
+                            ),
+                          ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                customer?.fullName ?? 'Loading customer...',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                customer == null
+                                    ? request.customerId
+                                    : '${customer.companyName} - ${customer.phone}',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _StatusChip(label: statusLabel, color: statusColor),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        request.reason,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          MoneyEtb.formatCents(request.amountCents),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                        ),
+                        if (busy)
+                          const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          Text(
+                            request.walletId == null
+                                ? 'Primary wallet'
+                                : 'Wallet request',
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _InfoPill(
+                      label:
+                          'Fee ${MoneyEtb.formatCents(request.approvalFeeCents)}',
+                    ),
+                    _InfoPill(
+                      label:
+                          'Total ${MoneyEtb.formatCents(request.approvedTotalDebitCents > 0 ? request.approvedTotalDebitCents : request.amountCents + request.approvalFeeCents)}',
+                    ),
+                  ],
+                ),
+                if (showActions) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: busy ? null : onApprove,
+                          icon: const Icon(Icons.check),
+                          label: const Text('Approve'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green.shade600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : onReject,
+                          icon: const Icon(Icons.close),
+                          label: const Text('Reject'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
+class _QueueSummaryCard extends StatelessWidget {
+  const _QueueSummaryCard({
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  final String title;
+  final String subtitle;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.layers_outlined, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  const _InfoPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetSection extends StatelessWidget {
+  const _SheetSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

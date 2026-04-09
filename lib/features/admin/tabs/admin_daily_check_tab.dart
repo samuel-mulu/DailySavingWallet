@@ -39,6 +39,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   Timer? _searchDebounce;
   _AlphabetSortOrder _sortOrder = _AlphabetSortOrder.az;
   _DailyCheckFilter _dailyFilter = _DailyCheckFilter.all;
+  final Set<String> _expandedCustomerIds = <String>{};
 
   @override
   void initState() {
@@ -67,6 +68,18 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   String _txDay(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+  bool _isCustomerExpanded(String customerId) {
+    return _expandedCustomerIds.contains(customerId);
+  }
+
+  void _toggleCustomerExpanded(String customerId) {
+    setState(() {
+      if (!_expandedCustomerIds.remove(customerId)) {
+        _expandedCustomerIds.add(customerId);
+      }
+    });
+  }
+
   Widget _customerWalletGroup(
     BuildContext context,
     ColorScheme colorScheme,
@@ -74,8 +87,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     List<CustomerWallet> wallets,
     Set<String> recordedWalletIds,
   ) {
-    final allSaved = wallets.isNotEmpty &&
+    final allSaved =
+        wallets.isNotEmpty &&
         wallets.every((w) => recordedWalletIds.contains(w.id));
+    final isExpanded = _isCustomerExpanded(customer.customerId);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,7 +131,8 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         const SizedBox(height: 2),
                         Text(
                           '${customer.companyName} • ${wallets.length} wallet(s)',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                                 fontSize: 12,
                               ),
@@ -127,105 +143,128 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                     ),
                   ),
                   if (allSaved)
-                    const Icon(Icons.check_circle, color: Colors.green, size: 22)
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 22,
+                    )
                   else
                     Icon(Icons.pending_actions, color: Colors.orange.shade700),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () =>
+                        _toggleCustomerExpanded(customer.customerId),
+                    tooltip: isExpanded ? 'Hide wallets' : 'Show wallets',
+                    icon: AnimatedRotation(
+                      duration: const Duration(milliseconds: 180),
+                      turns: isExpanded ? 0.5 : 0,
+                      child: const Icon(Icons.expand_more_rounded),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ],
               ),
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.only(left: 56, right: 4),
-          child: Column(
-            children: [
-              for (final w in wallets) ...[
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              w.label,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontSize: 13,
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(left: 56, right: 4),
+            child: Column(
+              children: [
+                for (final w in wallets) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                w.label,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              MoneyEtb.formatCents(w.balanceCents),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                            ),
-                          ],
+                              Text(
+                                MoneyEtb.formatCents(w.balanceCents),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      if (recordedWalletIds.contains(w.id))
-                        const Icon(
-                          Icons.check_circle,
-                          color: Colors.green,
-                          size: 18,
-                        )
-                      else
-                        Icon(
-                          Icons.radio_button_unchecked,
-                          color: Colors.grey.shade500,
-                          size: 18,
+                        if (recordedWalletIds.contains(w.id))
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            size: 18,
+                          )
+                        else
+                          Icon(
+                            Icons.radio_button_unchecked,
+                            color: Colors.grey.shade500,
+                            size: 18,
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.savings_outlined),
+                          iconSize: 20,
+                          color: Colors.green.shade700,
+                          tooltip: 'Daily Saving',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          onPressed: () => _showPaymentModal(
+                            context,
+                            ref,
+                            customer,
+                            w,
+                            'DAILY_PAYMENT',
+                            _selectedDate,
+                          ),
                         ),
-                      IconButton(
-                        icon: const Icon(Icons.savings_outlined),
-                        iconSize: 20,
-                        color: Colors.green.shade700,
-                        tooltip: 'Daily Saving',
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          iconSize: 20,
+                          color: Colors.blue.shade700,
+                          tooltip: 'Deposit',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          onPressed: () => _showPaymentModal(
+                            context,
+                            ref,
+                            customer,
+                            w,
+                            'DEPOSIT',
+                            _selectedDate,
+                          ),
                         ),
-                        onPressed: () => _showPaymentModal(
-                          context,
-                          ref,
-                          customer,
-                          w,
-                          'DAILY_PAYMENT',
-                          _selectedDate,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline),
-                        iconSize: 20,
-                        color: Colors.blue.shade700,
-                        tooltip: 'Deposit',
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        onPressed: () => _showPaymentModal(
-                          context,
-                          ref,
-                          customer,
-                          w,
-                          'DEPOSIT',
-                          _selectedDate,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
+          crossFadeState: isExpanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 180),
         ),
       ],
     );
@@ -238,7 +277,8 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     required Set<String> recordedWalletIds,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
-    final allSaved = wallets.isNotEmpty &&
+    final allSaved =
+        wallets.isNotEmpty &&
         wallets.every((w) => recordedWalletIds.contains(w.id));
     final createdAt = customer.createdAt;
     final createdLabel = createdAt == null
@@ -287,7 +327,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                       label: allSaved ? 'All saved' : 'Needs save',
                       count: null,
                       selected: true,
-                      icon: allSaved ? Icons.check_circle : Icons.pending_actions,
+                      icon: allSaved
+                          ? Icons.check_circle
+                          : Icons.pending_actions,
                       onTap: null,
                     ),
                   ],
@@ -295,9 +337,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 const SizedBox(height: 16),
                 Text(
                   'Wallets',
-                  style: Theme.of(sheetContext).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    sheetContext,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 for (final w in wallets)
@@ -317,8 +359,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               ),
                               Text(
                                 '${MoneyEtb.formatCents(w.balanceCents)} • daily ${MoneyEtb.formatCents(w.dailyTargetCents)}',
-                                style: Theme.of(sheetContext).textTheme.bodySmall
-                                    ?.copyWith(color: colorScheme.onSurfaceVariant),
+                                style: Theme.of(sheetContext)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                               ),
                             ],
                           ),
@@ -397,9 +443,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   ) {
     final amountCtrl = TextEditingController(
       text: type == 'DAILY_PAYMENT'
-          ? MoneyEtb.formatCents(
-              wallet.dailyTargetCents,
-            ).replaceAll('ETB ', '')
+          ? MoneyEtb.formatCents(wallet.dailyTargetCents).replaceAll('ETB ', '')
           : '',
     );
     final noteCtrl = TextEditingController();
@@ -570,12 +614,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                 if (snap != null) {
                                   ref
                                       .read(
-                                        walletStaleProvider(
-                                          (
-                                            customerId: customer.customerId,
-                                            walletId: wallet.id,
-                                          ),
-                                        ).notifier,
+                                        walletStaleProvider((
+                                          customerId: customer.customerId,
+                                          walletId: wallet.id,
+                                        )).notifier,
                                       )
                                       .applyWallet(snap);
                                 }
@@ -613,12 +655,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                 if (snapDep != null) {
                                   ref
                                       .read(
-                                        walletStaleProvider(
-                                          (
-                                            customerId: customer.customerId,
-                                            walletId: wallet.id,
-                                          ),
-                                        ).notifier,
+                                        walletStaleProvider((
+                                          customerId: customer.customerId,
+                                          walletId: wallet.id,
+                                        )).notifier,
                                       )
                                       .applyWallet(snapDep);
                                 }
@@ -838,9 +878,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 setState(() => _selectedDate = date);
                 widget.onSelectedDateChanged?.call(date);
                 ref
-                    .read(
-                      recordedDailyWalletIdsProvider(_txDay(date)).notifier,
-                    )
+                    .read(recordedDailyWalletIdsProvider(_txDay(date)).notifier)
                     .ensureFresh(force: true);
                 ref.invalidate(dailyPendingSummaryProvider(_txDay(date)));
               },
@@ -896,7 +934,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                   recordedDailyWalletIdsProvider(txDay),
                 );
                 final listState = ref.watch(customerListNotifierProvider);
-                final walletsMapAsync = ref.watch(walletsForCustomerListProvider);
+                final walletsMapAsync = ref.watch(
+                  walletsForCustomerListProvider,
+                );
 
                 if (recordedStale.error != null &&
                     (recordedStale.data == null ||
@@ -941,7 +981,8 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 final walletsMap = walletsMapAsync.value ?? {};
                 final customers = _sortedCustomers(listState.items);
                 bool customerFullySaved(Customer c) {
-                  final ws = walletsMap[c.customerId] ?? const <CustomerWallet>[];
+                  final ws =
+                      walletsMap[c.customerId] ?? const <CustomerWallet>[];
                   if (ws.isEmpty) return false;
                   return ws.every((w) => recordedWalletIds.contains(w.id));
                 }
@@ -952,8 +993,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                     .where((w) => recordedWalletIds.contains(w.id))
                     .length;
                 final notSavedWalletCount = totalWalletCount - savedWalletCount;
-                final filteredCustomers =
-                    _applyDailyFilter(customers, customerFullySaved);
+                final filteredCustomers = _applyDailyFilter(
+                  customers,
+                  customerFullySaved,
+                );
 
                 if (customers.isEmpty) {
                   final hasSearch = _searchQuery.isNotEmpty;
@@ -1066,7 +1109,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                     .read(customerListNotifierProvider.notifier)
                                     .refresh(force: true);
                                 ref.invalidate(walletsForCustomerListProvider);
-                                ref.invalidate(dailyPendingSummaryProvider(txDay));
+                                ref.invalidate(
+                                  dailyPendingSummaryProvider(txDay),
+                                );
                               },
                               child: ListView(
                                 padding: const EdgeInsets.symmetric(
@@ -1163,9 +1208,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
       case _DailyCheckFilter.saved:
         return customers.where(customerFullySaved).toList();
       case _DailyCheckFilter.notSaved:
-        return customers
-            .where((c) => !customerFullySaved(c))
-            .toList();
+        return customers.where((c) => !customerFullySaved(c)).toList();
     }
   }
 }

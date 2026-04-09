@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/routing/routes.dart';
 import '../../core/money/money.dart';
 import '../../data/wallet/models.dart';
 import '../../data/wallet/wallet_repo.dart';
@@ -106,9 +107,7 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
   Widget build(BuildContext context) {
     final uid = ref.watch(authUidProvider).valueOrNull;
     if (uid == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final profileAsync = ref.watch(appUserProfileProvider(uid));
@@ -119,7 +118,12 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
         actions: [
           IconButton(
             tooltip: 'Logout',
-            onPressed: () => ref.read(authClientProvider).signOut(),
+            onPressed: () async {
+              await ref.read(authClientProvider).signOut();
+              if (context.mounted) {
+                AppRoutes.goToAuthGate(context);
+              }
+            },
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -158,8 +162,10 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
             onRefresh: () async {
               await ref
                   .read(
-                    walletStaleProvider((customerId: customerId, walletId: null))
-                        .notifier,
+                    walletStaleProvider((
+                      customerId: customerId,
+                      walletId: null,
+                    )).notifier,
                   )
                   .refresh(force: true);
               await _loadFirstPage(customerId);
@@ -173,9 +179,10 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                   updatedAt: stale.data?.updatedAt,
                   onSync: () => ref
                       .read(
-                        walletStaleProvider(
-                          (customerId: customerId, walletId: null),
-                        ).notifier,
+                        walletStaleProvider((
+                          customerId: customerId,
+                          walletId: null,
+                        )).notifier,
                       )
                       .refresh(force: true),
                   isSyncing: stale.isRefreshing,
@@ -193,9 +200,10 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                       if (!mounted) return;
                       await ref
                           .read(
-                            walletStaleProvider(
-                              (customerId: customerId, walletId: null),
-                            ).notifier,
+                            walletStaleProvider((
+                              customerId: customerId,
+                              walletId: null,
+                            )).notifier,
                           )
                           .refresh(force: true);
                       await _loadFirstPage(customerId);

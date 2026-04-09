@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/routing/routes.dart';
 import '../admin/record_daily_saving_screen.dart';
 import '../admin/withdraw_approvals_screen.dart';
 import '../auth/providers/auth_providers.dart';
@@ -15,7 +16,12 @@ class AdminDashboard extends ConsumerWidget {
         title: const Text('Admin Dashboard'),
         actions: [
           IconButton(
-            onPressed: () => ref.read(authClientProvider).signOut(),
+            onPressed: () async {
+              await ref.read(authClientProvider).signOut();
+              if (context.mounted) {
+                AppRoutes.goToAuthGate(context);
+              }
+            },
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -28,7 +34,9 @@ class AdminDashboard extends ConsumerWidget {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const RecordDailySavingScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const RecordDailySavingScreen(),
+                  ),
                 ),
                 child: const Text('Record Daily Saving'),
               ),
@@ -38,7 +46,9 @@ class AdminDashboard extends ConsumerWidget {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const WithdrawApprovalsScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const WithdrawApprovalsScreen(),
+                  ),
                 ),
                 child: const Text('Withdraw Approvals'),
               ),

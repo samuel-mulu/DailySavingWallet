@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/routing/routes.dart';
 import '../../core/ui/app_header.dart';
 import '../auth/providers/auth_providers.dart';
 
@@ -266,9 +267,7 @@ class _SuperAdminDashboard extends StatelessWidget {
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFF8B5CF6).withOpacity(0.2),
-        ),
+        border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.2)),
       ),
       child: Row(
         children: [
@@ -388,7 +387,12 @@ class _SuperAdminSettings extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: InkWell(
-                  onTap: () => ref.read(authClientProvider).signOut(),
+                  onTap: () async {
+                    await ref.read(authClientProvider).signOut();
+                    if (context.mounted) {
+                      AppRoutes.goToAuthGate(context);
+                    }
+                  },
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.all(16),

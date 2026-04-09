@@ -10,9 +10,9 @@ import '../../../data/wallet/wallet_repo.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../customers/admin_customer_ids_notifier.dart';
 import '../../customers/customer_list_notifier.dart';
+import '../admin_tab.dart';
 import '../customers/customer_detail_screen.dart';
 import '../customers/widgets/customer_profile_avatar.dart';
-import '../admin_tab.dart';
 
 class AdminHomeTab extends ConsumerStatefulWidget {
   final ValueChanged<AdminTab>? onNavigateToTab;
@@ -41,6 +41,7 @@ class AdminHomeTab extends ConsumerStatefulWidget {
 class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
   WalletRepo? _walletRepo;
   CustomerRepo? _customerRepo;
+  late Future<List<Customer>> _customersWithSavingFuture;
   late Future<List<Customer>> _customersWithCreditFuture;
 
   @override
@@ -52,6 +53,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
         widget.loadTotalCredit == null) {
       _walletRepo = widget.walletRepo ?? WalletRepo();
     }
+    _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
     _customersWithCreditFuture = _loadCustomersWithCredit();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.loadCustomerCount == null) {
@@ -65,9 +67,10 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Column(
       children: [
-        // Header
         Consumer(
           builder: (context, ref, _) {
             final name =
@@ -76,12 +79,15 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
               title: 'Admin Dashboard',
               subtitle: 'Welcome back',
               userName: name,
-              onLogout: () => ref.read(authClientProvider).signOut(),
+              onLogout: () async {
+                await ref.read(authClientProvider).signOut();
+                if (context.mounted) {
+                  AppRoutes.goToAuthGate(context);
+                }
+              },
             );
           },
         ),
-
-        // Content
         Expanded(
           child: RefreshIndicator(
             color: const Color(0xFF8B5CF6),
@@ -95,16 +101,15 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     .refresh(force: true);
               }
               setState(() {
+                _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
                 _customersWithCreditFuture = _loadCustomersWithCredit();
               });
             },
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                // Stats Row
                 Row(
                   children: [
-                    // Pending Approvals
                     Expanded(
                       child: FutureBuilder<int>(
                         future:
@@ -114,15 +119,20 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                           return _StatCard(
                             title: 'Pending',
                             subtitle: 'Approvals',
-                            value: snap.data?.toString() ?? '—',
+                            value: snap.data?.toString() ?? '--',
                             icon: Icons.pending_actions_rounded,
                             color: const Color(0xFFF59E0B),
+                            footerText: widget.onNavigateToTab == null
+                                ? null
+                                : 'Tap to review',
+                            onTap: () => widget.onNavigateToTab?.call(
+                              AdminTab.approvals,
+                            ),
                           );
                         },
                       ),
                     ),
                     const SizedBox(width: 12),
-                    // Total Customers
                     Expanded(
                       child: widget.loadCustomerCount != null
                           ? FutureBuilder<int>(
@@ -131,7 +141,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                 return _StatCard(
                                   title: 'Total',
                                   subtitle: 'Customers',
-                                  value: snap.data?.toString() ?? '—',
+                                  value: snap.data?.toString() ?? '--',
                                   icon: Icons.people_rounded,
                                   color: const Color(0xFF8B5CF6),
                                 );
@@ -142,12 +152,12 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                 final ids = ref.watch(
                                   adminCustomerIdsStaleProvider,
                                 );
-                                final n = ids.data?.length ?? 0;
-                                final loading = ids.isRefreshing && n == 0;
+                                final count = ids.data?.length ?? 0;
+                                final loading = ids.isRefreshing && count == 0;
                                 return _StatCard(
                                   title: 'Total',
                                   subtitle: 'Customers',
-                                  value: loading ? '—' : n.toString(),
+                                  value: loading ? '--' : count.toString(),
                                   icon: Icons.people_rounded,
                                   color: const Color(0xFF8B5CF6),
                                 );
@@ -157,23 +167,33 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Financial Stats Row 1
                 Row(
                   children: [
                     Expanded(
-                      child: FutureBuilder<int>(
-                        future:
-                            widget.loadTotalSaving?.call() ??
-                            _walletRepo!.fetchTotalSaving(),
-                        builder: (context, snap) {
-                          // Saving is positive
-                          final val = snap.data ?? 0;
-                          return _StatCard(
-                            title: 'Total',
-                            subtitle: 'Saving',
-                            value: (val / 100).toStringAsFixed(0),
-                            icon: Icons.account_balance_rounded,
-                            color: const Color(0xFF10B981),
+                      child: FutureBuilder<List<Customer>>(
+                        future: _customersWithSavingFuture,
+                        builder: (context, savingCustomersSnap) {
+                          final savingCustomers =
+                              savingCustomersSnap.data ?? const <Customer>[];
+                          return FutureBuilder<int>(
+                            future:
+                                widget.loadTotalSaving?.call() ??
+                                _walletRepo!.fetchTotalSaving(),
+                            builder: (context, snap) {
+                              final value = snap.data ?? 0;
+                              return _StatCard(
+                                title: 'Total',
+                                subtitle: 'Saving',
+                                value: (value / 100).toStringAsFixed(0),
+                                icon: Icons.account_balance_rounded,
+                                color: const Color(0xFF10B981),
+                                footerText: _customerCountLabel(
+                                  savingCustomers.length,
+                                ),
+                                onTap: () =>
+                                    _showCustomersWithSavingModal(context),
+                              );
+                            },
                           );
                         },
                       ),
@@ -190,16 +210,16 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                 widget.loadTotalCredit?.call() ??
                                 _walletRepo!.fetchTotalCredit(),
                             builder: (context, snap) {
-                              final val = (snap.data ?? 0).abs();
-                              final countText =
-                                  '${creditCustomers.length} customer${creditCustomers.length == 1 ? '' : 's'}';
+                              final value = (snap.data ?? 0).abs();
                               return _StatCard(
                                 title: 'Total',
                                 subtitle: 'Credit',
-                                value: (val / 100).toStringAsFixed(0),
+                                value: (value / 100).toStringAsFixed(0),
                                 icon: Icons.credit_card_rounded,
                                 color: const Color(0xFFEF5350),
-                                footerText: countText,
+                                footerText: _customerCountLabel(
+                                  creditCustomers.length,
+                                ),
                                 onTap: () =>
                                     _showCustomersWithCreditModal(context),
                               );
@@ -211,7 +231,6 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Financial Stats Row 2 (Revenue)
                 FutureBuilder<List<int>>(
                   future: Future.wait([
                     widget.loadTotalSaving?.call() ??
@@ -222,29 +241,6 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   builder: (context, snap) {
                     final saving = snap.data?[0] ?? 0;
                     final credit = snap.data?[1] ?? 0;
-                    // Revenue = Saving - Credit
-                    // If Credit in DB is NEGATIVE (e.g. -100).
-                    // User said "wallets have credit and saving".
-                    // "total revune(total saving - the crefit)".
-                    // This implies Revenue = Net Value?
-                    // If I have 100 saving, and -50 credit. Net = 50.
-                    // "Saving - Credit" -> 100 - 50 = 50. (if Credit is magnitude)
-                    // "Saving + Credit" -> 100 + (-50) = 50. (if Credit is raw)
-                    // So standard Net = Sum.
-                    // But User's formula "saving - credit" suggests they think of credit as a positive number TO BE SUBTRACTED?
-                    // OR maybe they mean "Revenue = Saving (Assets) - Credit (Outstanding Loans)"?
-                    // Let's assume Revenue = Saving + Credit (raw sum) which is Net Balance.
-                    // Examples:
-                    // User A: +200. User B: -50.
-                    // Total Saving: 200.
-                    // Total Credit: -50 (or 50).
-                    // "Revenue" = 150.
-                    // Formula: 200 + (-50) = 150.
-                    // If I use user's string "saving - credit":
-                    // 200 - 50 = 150.
-                    // So `saving - credit.abs()` or `saving + credit`.
-                    // I will use `saving + credit` (since credit is negative).
-
                     final revenue = saving + credit;
                     return _StatCard(
                       title: 'Total',
@@ -255,20 +251,16 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     );
                   },
                 ),
-
                 const SizedBox(height: 20),
-
-                // Quick Actions Section
-                Text(
+                const Text(
                   'Quick Actions',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF2D2D2D),
+                    color: Color(0xFF2D2D2D),
                   ),
                 ),
                 const SizedBox(height: 12),
-
                 _QuickActionTile(
                   icon: Icons.person_add_rounded,
                   title: 'Add New Customer',
@@ -298,10 +290,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     widget.onNavigateToTab?.call(AdminTab.approvals);
                   },
                 ),
-
                 const SizedBox(height: 24),
-
-                // Tips Card
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -343,7 +332,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                             Text(
                               'Use the Daily tab to quickly record payments for multiple customers.',
                               style: TextStyle(
-                                color: const Color(0xFF6B7280),
+                                color: colorScheme.onSurfaceVariant,
                                 fontSize: 13,
                               ),
                             ),
@@ -361,28 +350,73 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     );
   }
 
+  Future<List<Customer>> _loadCustomersWithPositiveSaving() async {
+    final customers = await _customerRepo!.fetchAllActiveCustomers();
+    final withSaving = customers
+        .where((customer) => customer.balanceCents > 0)
+        .toList(growable: false);
+    return _sortCustomers(withSaving);
+  }
+
   Future<List<Customer>> _loadCustomersWithCredit() async {
     final customers = await _customerRepo!.fetchAllActiveCustomers();
     final withCredit = customers
         .where((customer) => customer.balanceCents < 0)
         .toList(growable: false);
-    final sorted = [...withCredit];
+    return _sortCustomers(withCredit);
+  }
+
+  List<Customer> _sortCustomers(List<Customer> customers) {
+    final sorted = [...customers];
     sorted.sort(
       (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
     );
     return sorted;
   }
 
+  String _customerCountLabel(int count) {
+    return '$count customer${count == 1 ? '' : 's'}';
+  }
+
+  Future<void> _showCustomersWithSavingModal(BuildContext context) async {
+    await _showCustomerBalanceModal(
+      context,
+      title: 'Customers With Saving',
+      future: _customersWithSavingFuture,
+      emptyMessage: 'No customers with positive saving right now.',
+      valueFor: (customer) => customer.balanceCents,
+      valueColor: const Color(0xFF10B981),
+    );
+  }
+
   Future<void> _showCustomersWithCreditModal(BuildContext context) async {
+    await _showCustomerBalanceModal(
+      context,
+      title: 'Customers With Credit',
+      future: _customersWithCreditFuture,
+      emptyMessage: 'No customers with credit right now.',
+      valueFor: (customer) => customer.balanceCents.abs(),
+      valueColor: const Color(0xFFEF5350),
+    );
+  }
+
+  Future<void> _showCustomerBalanceModal(
+    BuildContext context, {
+    required String title,
+    required Future<List<Customer>> future,
+    required String emptyMessage,
+    required int Function(Customer customer) valueFor,
+    required Color valueColor,
+  }) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
         child: FractionallySizedBox(
-          heightFactor: 0.8,
+          heightFactor: 0.82,
           child: FutureBuilder<List<Customer>>(
-            future: _customersWithCreditFuture,
+            future: future,
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting &&
                   !snap.hasData) {
@@ -395,8 +429,8 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Could not load customers with credit.',
+                      Text(
+                        'Could not load $title.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
@@ -414,35 +448,33 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
               final customers = snap.data ?? const <Customer>[];
               if (customers.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(
-                    child: Text('No customers with credit right now.'),
-                  ),
+                return Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(child: Text(emptyMessage)),
                 );
               }
 
-              final totalCreditCents = customers.fold<int>(
+              final totalCents = customers.fold<int>(
                 0,
-                (sum, customer) => sum + customer.balanceCents.abs(),
+                (sum, customer) => sum + valueFor(customer),
               );
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Customers With Credit',
+                          title,
                           style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${customers.length} customer${customers.length == 1 ? '' : 's'} • ${MoneyEtb.formatCents(totalCreditCents)}',
+                          '${_customerCountLabel(customers.length)} - ${MoneyEtb.formatCents(totalCents)}',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
@@ -456,6 +488,10 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                       itemBuilder: (context, index) {
                         final customer = customers[index];
                         return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 4,
+                          ),
                           leading: CustomerProfileAvatar(
                             customer: customer,
                             radius: 20,
@@ -463,13 +499,13 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                           ),
                           title: Text(customer.fullName),
                           subtitle: Text(
-                            '${customer.companyName} • ${customer.phone}',
+                            '${customer.companyName} - ${customer.phone}',
                           ),
                           trailing: Text(
-                            MoneyEtb.formatCents(customer.balanceCents.abs()),
+                            MoneyEtb.formatCents(valueFor(customer)),
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.error,
+                              color: valueColor,
                             ),
                           ),
                           onTap: () {
@@ -517,6 +553,8 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
+
     return Card(
       elevation: 2,
       shadowColor: color.withValues(alpha: 0.2),
@@ -550,21 +588,29 @@ class _StatCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 '$title\n$subtitle',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 12,
-                  color: const Color(0xFF6B7280),
+                  color: Color(0xFF6B7280),
                   height: 1.3,
                 ),
               ),
               if (footerText != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  footerText!,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        footerText!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (enabled)
+                      Icon(Icons.open_in_new_rounded, size: 16, color: color),
+                  ],
                 ),
               ],
             ],
@@ -625,21 +671,20 @@ class _QuickActionTile extends StatelessWidget {
                         color: Color(0xFF2D2D2D),
                       ),
                     ),
-                    const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 13,
-                        color: const Color(0xFF6B7280),
+                        color: Color(0xFF6B7280),
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
+              const Icon(
                 Icons.arrow_forward_ios_rounded,
                 size: 16,
-                color: const Color(0xFF6B7280),
+                color: Color(0xFF6B7280),
               ),
             ],
           ),

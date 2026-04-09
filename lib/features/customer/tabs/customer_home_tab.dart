@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/routing/routes.dart';
 import '../../../core/money/money.dart';
 import '../../../core/settings/calendar_mode.dart';
 import '../../../core/ui/app_header.dart';
@@ -44,12 +45,19 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
     final walletId = _selectedWalletId;
     await Future.wait([
       ref
-          .read(walletStaleProvider((customerId: customerId, walletId: walletId)).notifier)
+          .read(
+            walletStaleProvider((
+              customerId: customerId,
+              walletId: walletId,
+            )).notifier,
+          )
           .refresh(force: true),
       ref
           .read(
-            recentLedgerStaleProvider((customerId: customerId, walletId: walletId))
-                .notifier,
+            recentLedgerStaleProvider((
+              customerId: customerId,
+              walletId: walletId,
+            )).notifier,
           )
           .refresh(force: true),
     ]);
@@ -59,8 +67,9 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
     if (_lastCustomerId == customerId && _wallets.isNotEmpty) return;
     _lastCustomerId = customerId;
     try {
-      final wallets =
-          await ref.read(customerRepoProvider).fetchCustomerWallets(customerId);
+      final wallets = await ref
+          .read(customerRepoProvider)
+          .fetchCustomerWallets(customerId);
       if (!mounted) return;
       setState(() {
         _wallets = wallets;
@@ -109,16 +118,19 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                 children: [
                   Consumer(
                     builder: (context, ref, _) {
-                      final name = ref
-                              .watch(accountDisplayLabelProvider)
-                              .valueOrNull ??
+                      final name =
+                          ref.watch(accountDisplayLabelProvider).valueOrNull ??
                           'User';
                       return AppHeader(
                         title: 'My Wallet',
                         subtitle: 'Welcome back',
                         userName: name,
-                        onLogout: () =>
-                            ref.read(authClientProvider).signOut(),
+                        onLogout: () async {
+                          await ref.read(authClientProvider).signOut();
+                          if (context.mounted) {
+                            AppRoutes.goToAuthGate(context);
+                          }
+                        },
                       );
                     },
                   ),
@@ -173,16 +185,19 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
               children: [
                 Consumer(
                   builder: (context, ref, _) {
-                    final name = ref
-                            .watch(accountDisplayLabelProvider)
-                            .valueOrNull ??
+                    final name =
+                        ref.watch(accountDisplayLabelProvider).valueOrNull ??
                         'User';
                     return AppHeader(
                       title: 'My Wallet',
                       subtitle: 'Welcome back',
                       userName: name,
-                      onLogout: () =>
-                          ref.read(authClientProvider).signOut(),
+                      onLogout: () async {
+                        await ref.read(authClientProvider).signOut();
+                        if (context.mounted) {
+                          AppRoutes.goToAuthGate(context);
+                        }
+                      },
                     );
                   },
                 ),
@@ -236,20 +251,23 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                                 icon: Icons.request_page_rounded,
                                 label: 'Request\nWithdraw',
                                 color: const Color(0xFF8B5CF6),
-                                onTap: (accountBlocked || _isSelectedWalletBlocked())
+                                onTap:
+                                    (accountBlocked ||
+                                        _isSelectedWalletBlocked())
                                     ? () {}
                                     : () async {
-                                  await Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => WithdrawRequestScreen(
-                                        customerId: customerId,
-                                        walletId: _selectedWalletId,
-                                      ),
-                                    ),
-                                  );
-                                  if (!context.mounted) return;
-                                  await _onRefresh(customerId);
-                                },
+                                        await Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                WithdrawRequestScreen(
+                                                  customerId: customerId,
+                                                  walletId: _selectedWalletId,
+                                                ),
+                                          ),
+                                        );
+                                        if (!context.mounted) return;
+                                        await _onRefresh(customerId);
+                                      },
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -349,8 +367,10 @@ class _RecentLedgerSection extends ConsumerWidget {
         message: stale.error.toString(),
         onRetry: () => ref
             .read(
-              recentLedgerStaleProvider((customerId: customerId, walletId: walletId))
-                  .notifier,
+              recentLedgerStaleProvider((
+                customerId: customerId,
+                walletId: walletId,
+              )).notifier,
             )
             .refresh(force: true),
       );
@@ -413,7 +433,10 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
   @override
   Widget build(BuildContext context) {
     final stale = ref.watch(
-      walletStaleProvider((customerId: widget.customerId, walletId: widget.walletId)),
+      walletStaleProvider((
+        customerId: widget.customerId,
+        walletId: widget.walletId,
+      )),
     );
     final wallet = stale.data;
     final balance = wallet?.balanceCents ?? 0;
@@ -517,16 +540,13 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                         onPressed: stale.isRefreshing
                             ? null
                             : () => ref
-                                .read(
-                                  walletStaleProvider(
-                                    (
+                                  .read(
+                                    walletStaleProvider((
                                       customerId: widget.customerId,
                                       walletId: widget.walletId,
-                                    ),
+                                    )).notifier,
                                   )
-                                      .notifier,
-                                )
-                                .refresh(force: true),
+                                  .refresh(force: true),
                         icon: stale.isRefreshing
                             ? SizedBox(
                                 width: 20,
@@ -566,7 +586,10 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                       padding: const EdgeInsets.all(8),
                       child: Text(
                         stale.error.toString(),
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     )

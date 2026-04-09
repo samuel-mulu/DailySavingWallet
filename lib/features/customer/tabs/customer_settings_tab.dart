@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/routing/routes.dart';
 import '../../../core/security/app_lock_service.dart';
 import '../../../core/settings/calendar_mode.dart';
 import '../../auth/providers/auth_providers.dart';
@@ -106,7 +107,12 @@ class _CustomerSettingsTabState extends ConsumerState<CustomerSettingsTab> {
                     ListTile(
                       leading: const Icon(Icons.logout),
                       title: const Text('Logout'),
-                      onTap: () => ref.read(authClientProvider).signOut(),
+                      onTap: () async {
+                        await ref.read(authClientProvider).signOut();
+                        if (context.mounted) {
+                          AppRoutes.goToAuthGate(context);
+                        }
+                      },
                     ),
                   ],
                 ),

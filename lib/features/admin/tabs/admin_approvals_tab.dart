@@ -7,8 +7,6 @@ class AdminApprovalsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Reuse the existing approvals screen for now; we’ll restyle it later.
-    return const WithdrawApprovalsScreen();
+    return const WithdrawApprovalsScreen(showAppBar: false);
   }
 }
-
