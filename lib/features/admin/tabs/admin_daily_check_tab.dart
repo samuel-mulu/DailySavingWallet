@@ -9,11 +9,14 @@ import '../../../core/routing/routes.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../core/ui/empty_state.dart';
 import '../../../core/ui/filter_count_chip.dart';
+import '../../../core/logging/app_logger.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/wallet/models.dart';
 import '../../../data/wallet/wallet_repo.dart';
 import '../../customers/customer_list_notifier.dart';
 import '../../wallet/wallet_providers.dart';
+import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
+import '../customers/customer_group_management_screen.dart';
 import '../customers/customer_detail_screen.dart';
 import '../customers/widgets/customer_profile_avatar.dart';
 
@@ -32,14 +35,17 @@ class AdminDailyCheckTab extends ConsumerStatefulWidget {
 }
 
 class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
+  static const String _unassignedGroupKey = '__unassigned__';
   final _searchCtrl = TextEditingController();
   final _uuid = const Uuid();
   String _searchQuery = '';
   late DateTime _selectedDate;
   Timer? _searchDebounce;
   _AlphabetSortOrder _sortOrder = _AlphabetSortOrder.az;
+  _DailyCheckViewStyle _viewStyle = _DailyCheckViewStyle.grouped;
   _DailyCheckFilter _dailyFilter = _DailyCheckFilter.all;
   final Set<String> _expandedCustomerIds = <String>{};
+  final Set<String> _expandedGroupKeys = <String>{};
 
   @override
   void initState() {
@@ -80,6 +86,18 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     });
   }
 
+  bool _isGroupExpanded(String groupKey) {
+    return _expandedGroupKeys.contains(groupKey);
+  }
+
+  void _toggleGroupExpanded(String groupKey) {
+    setState(() {
+      if (!_expandedGroupKeys.remove(groupKey)) {
+        _expandedGroupKeys.add(groupKey);
+      }
+    });
+  }
+
   Widget _customerWalletGroup(
     BuildContext context,
     ColorScheme colorScheme,
@@ -87,9 +105,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     List<CustomerWallet> wallets,
     Set<String> recordedWalletIds,
   ) {
+    final walletSummary = _summarizeWallets(wallets, recordedWalletIds);
     final allSaved =
-        wallets.isNotEmpty &&
-        wallets.every((w) => recordedWalletIds.contains(w.id));
+        walletSummary.totalWalletCount > 0 &&
+        walletSummary.pendingWalletCount == 0;
     final isExpanded = _isCustomerExpanded(customer.customerId);
 
     return Column(
@@ -130,11 +149,23 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${customer.companyName} • ${wallets.length} wallet(s)',
+                          '${customer.companyName} • ${walletSummary.totalWalletCount} wallet(s) • ${walletSummary.savedWalletCount} saved • ${walletSummary.pendingWalletCount} not saved',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                                 fontSize: 12,
+                              ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Group: ${customer.groupName}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.primary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
                               ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -398,6 +429,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                   value: customer.address,
                 ),
                 _CustomerDetailLine(
+                  icon: Icons.group_work_outlined,
+                  label: 'Group',
+                  value: customer.groupName,
+                ),
+                _CustomerDetailLine(
                   icon: Icons.calendar_today_outlined,
                   label: 'Created',
                   value: createdLabel,
@@ -441,6 +477,42 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     String type,
     DateTime initialDate,
   ) {
+    if (type == 'DAILY_PAYMENT') {
+      unawaited(
+        showAdminBulkDailySavingSheet(
+          context: context,
+          customerId: customer.customerId,
+          customerName: customer.fullName,
+          wallet: wallet,
+          onWalletUpdated: (snap) async {
+            if (snap != null) {
+              ref
+                  .read(
+                    walletStaleProvider((
+                      customerId: customer.customerId,
+                      walletId: wallet.id,
+                    )).notifier,
+                  )
+                  .applyWallet(snap);
+            }
+          },
+          onRefreshAfterBatch: () {
+            ref.invalidate(walletsForCustomerListProvider);
+            ref.invalidate(dailyWalletCountsProvider(_txDay(_selectedDate)));
+            unawaited(ref.read(customerListNotifierProvider.notifier).refresh(force: true));
+          },
+          onOpenCustomerDetail: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => CustomerDetailScreen(customerId: customer.customerId),
+              ),
+            );
+          },
+        ),
+      );
+      return;
+    }
+
     final amountCtrl = TextEditingController(
       text: type == 'DAILY_PAYMENT'
           ? MoneyEtb.formatCents(wallet.dailyTargetCents).replaceAll('ETB ', '')
@@ -560,23 +632,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         ? null
                         : () async {
                             setSheetState(() => busy = true);
-
-                            // Debug logging for daily saving and deposit
-                            if (type == 'DAILY_PAYMENT') {
-                              print('🟢 [Daily Saving] Starting submission...');
-                              print('   Customer ID: ${customer.customerId}');
-                              print('   Customer Name: ${customer.fullName}');
-                              print('   Amount Text: ${amountCtrl.text}');
-                              print('   Selected Date: $modalSelectedDate');
-                              print('   Note: ${noteCtrl.text}');
-                            } else {
-                              print('🔵 [Deposit] Starting submission...');
-                              print('   Customer ID: ${customer.customerId}');
-                              print('   Customer Name: ${customer.fullName}');
-                              print('   Amount Text: ${amountCtrl.text}');
-                              print('   Selected Date: $modalSelectedDate');
-                              print('   Note: ${noteCtrl.text}');
-                            }
+                            AppLogger.debug(
+                              '[AdminDailyCheckTab] Submit $type for '
+                              'customer=${customer.customerId}, '
+                              'wallet=${wallet.id}, '
+                              'date=$modalSelectedDate',
+                            );
 
                             try {
                               // Validate amount
@@ -597,9 +658,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               );
 
                               if (type == 'DAILY_PAYMENT') {
-                                print('   Amount in cents: $cents');
-                                print('   TxDate millis: $txDateMillis');
-                                print('   Calling recordDailySaving...');
+                                AppLogger.debug(
+                                  '[AdminDailyCheckTab] recordDailySaving '
+                                  'wallet=${wallet.id}, cents=$cents, '
+                                  'txDateMillis=$txDateMillis',
+                                );
 
                                 final snap = await WalletRepo()
                                     .recordDailySaving(
@@ -631,16 +694,18 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                       ).notifier,
                                     )
                                     .addRecordedLocally(wallet.id);
-                                ref.invalidate(dailyPendingSummaryProvider(td));
+                                ref.invalidate(dailyWalletCountsProvider(td));
                                 ref.invalidate(walletsForCustomerListProvider);
-
-                                print(
-                                  '✅ [Daily Saving] Successfully recorded!',
+                                AppLogger.debug(
+                                  '[AdminDailyCheckTab] Daily saving recorded '
+                                  'for wallet=${wallet.id}',
                                 );
                               } else {
-                                print('   Amount in cents: $cents');
-                                print('   TxDate millis: $txDateMillis');
-                                print('   Calling recordDeposit...');
+                                AppLogger.debug(
+                                  '[AdminDailyCheckTab] recordDeposit '
+                                  'wallet=${wallet.id}, cents=$cents, '
+                                  'txDateMillis=$txDateMillis',
+                                );
 
                                 final snapDep = await WalletRepo()
                                     .recordDeposit(
@@ -663,8 +728,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                       .applyWallet(snapDep);
                                 }
                                 ref.invalidate(walletsForCustomerListProvider);
-
-                                print('✅ [Deposit] Successfully recorded!');
+                                AppLogger.debug(
+                                  '[AdminDailyCheckTab] Deposit recorded '
+                                  'for wallet=${wallet.id}',
+                                );
                               }
 
                               unawaited(
@@ -700,16 +767,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               );
                             } on FormatException catch (e) {
                               setSheetState(() => busy = false);
-
-                              if (type == 'DAILY_PAYMENT') {
-                                print(
-                                  '❌ [Daily Saving] FormatException: ${e.message}',
-                                );
-                              } else {
-                                print(
-                                  '❌ [Deposit] FormatException: ${e.message}',
-                                );
-                              }
+                              AppLogger.warn(
+                                '[AdminDailyCheckTab] Invalid $type input',
+                                e.message,
+                              );
 
                               if (!sheetContext.mounted) return;
                               ScaffoldMessenger.of(sheetContext).showSnackBar(
@@ -734,16 +795,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               );
                             } catch (e, stackTrace) {
                               setSheetState(() => busy = false);
-
-                              if (type == 'DAILY_PAYMENT') {
-                                print('❌ [Daily Saving] Error occurred:');
-                                print('   Error: $e');
-                                print('   Stack trace: $stackTrace');
-                              } else {
-                                print('❌ [Deposit] Error occurred:');
-                                print('   Error: $e');
-                                print('   Stack trace: $stackTrace');
-                              }
+                              AppLogger.error(
+                                '[AdminDailyCheckTab] Failed to record $type',
+                                e,
+                                stackTrace,
+                              );
 
                               if (!sheetContext.mounted) return;
 
@@ -865,6 +921,42 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                   : Icons.sort_by_alpha_outlined,
             ),
           ),
+          IconButton(
+            tooltip: 'Manage groups',
+            icon: const Icon(Icons.group_work_outlined),
+            onPressed: () async {
+              await Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CustomerGroupManagementScreen(),
+                ),
+              );
+              if (!mounted) return;
+              await ref
+                  .read(customerListNotifierProvider.notifier)
+                  .refresh(force: true);
+              ref.invalidate(walletsForCustomerListProvider);
+            },
+          ),
+          PopupMenuButton<_DailyCheckViewStyle>(
+            tooltip: 'Change list style',
+            initialValue: _viewStyle,
+            onSelected: (value) => setState(() => _viewStyle = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _DailyCheckViewStyle.sorted,
+                child: Text('Sorted list'),
+              ),
+              PopupMenuItem(
+                value: _DailyCheckViewStyle.grouped,
+                child: Text('Grouped list'),
+              ),
+            ],
+            icon: Icon(
+              _viewStyle == _DailyCheckViewStyle.grouped
+                  ? Icons.view_stream_outlined
+                  : Icons.view_agenda_outlined,
+            ),
+          ),
         ],
       ),
       body: Column(
@@ -880,7 +972,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 ref
                     .read(recordedDailyWalletIdsProvider(_txDay(date)).notifier)
                     .ensureFresh(force: true);
-                ref.invalidate(dailyPendingSummaryProvider(_txDay(date)));
+                ref.invalidate(dailyWalletCountsProvider(_txDay(date)));
               },
             ),
           ),
@@ -933,6 +1025,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 final recordedStale = ref.watch(
                   recordedDailyWalletIdsProvider(txDay),
                 );
+                final dailyWalletCountsAsync = ref.watch(
+                  dailyWalletCountsProvider(txDay),
+                );
                 final listState = ref.watch(customerListNotifierProvider);
                 final walletsMapAsync = ref.watch(
                   walletsForCustomerListProvider,
@@ -980,22 +1075,44 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                     recordedStale.data ?? const <String>{};
                 final walletsMap = walletsMapAsync.value ?? {};
                 final customers = _sortedCustomers(listState.items);
-                bool customerFullySaved(Customer c) {
-                  final ws =
-                      walletsMap[c.customerId] ?? const <CustomerWallet>[];
-                  if (ws.isEmpty) return false;
-                  return ws.every((w) => recordedWalletIds.contains(w.id));
+                final customerWalletSummaries = <String, _DailyWalletSummary>{
+                  for (final customer in customers)
+                    customer.customerId: _summarizeWallets(
+                      walletsMap[customer.customerId] ??
+                          const <CustomerWallet>[],
+                      recordedWalletIds,
+                    ),
+                };
+                bool customerHasSavedWallet(Customer c) {
+                  return (customerWalletSummaries[c.customerId]
+                              ?.savedWalletCount ??
+                          0) >
+                      0;
                 }
 
-                final allWallets = walletsMap.values.expand((ws) => ws);
-                final totalWalletCount = allWallets.length;
-                final savedWalletCount = allWallets
-                    .where((w) => recordedWalletIds.contains(w.id))
-                    .length;
-                final notSavedWalletCount = totalWalletCount - savedWalletCount;
+                bool customerHasPendingWallet(Customer c) {
+                  return (customerWalletSummaries[c.customerId]
+                              ?.pendingWalletCount ??
+                          0) >
+                      0;
+                }
+
+                final visibleWalletSummary = _combineWalletSummaries(
+                  customerWalletSummaries.values,
+                );
+                final totalWalletCount =
+                    dailyWalletCountsAsync.valueOrNull?.activeWalletCount ??
+                    visibleWalletSummary.totalWalletCount;
+                final savedWalletCount =
+                    dailyWalletCountsAsync.valueOrNull?.savedWalletCount ??
+                    visibleWalletSummary.savedWalletCount;
+                final notSavedWalletCount =
+                    dailyWalletCountsAsync.valueOrNull?.pendingWalletCount ??
+                    visibleWalletSummary.pendingWalletCount;
                 final filteredCustomers = _applyDailyFilter(
                   customers,
-                  customerFullySaved,
+                  customerHasSavedWallet: customerHasSavedWallet,
+                  customerHasPendingWallet: customerHasPendingWallet,
                 );
 
                 if (customers.isEmpty) {
@@ -1043,10 +1160,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         child: Row(
                           children: [
                             FilterCountChip(
-                              label: 'All',
+                              label: 'All wallets',
                               count: totalWalletCount,
                               selected: _dailyFilter == _DailyCheckFilter.all,
-                              icon: Icons.people_alt_outlined,
+                              icon: Icons.account_balance_wallet_outlined,
                               onTap: () => setState(
                                 () => _dailyFilter = _DailyCheckFilter.all,
                               ),
@@ -1083,11 +1200,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                   ? Icons.check_circle_outline
                                   : Icons.pending_actions_outlined,
                               title: _dailyFilter == _DailyCheckFilter.saved
-                                  ? 'No saved customers for this date'
-                                  : 'No pending customers for this date',
+                                  ? 'No customers with saved wallets'
+                                  : 'No customers with pending wallets',
                               message: _dailyFilter == _DailyCheckFilter.saved
-                                  ? 'Switch back to All to see every customer for the selected day.'
-                                  : 'Everyone in the current list is already marked as saved for this date.',
+                                  ? 'Switch back to All to see every customer for the selected date.'
+                                  : 'Everyone in the current list is fully saved for the selected date.',
                               action: FilledButton.icon(
                                 onPressed: () => setState(
                                   () => _dailyFilter = _DailyCheckFilter.all,
@@ -1110,7 +1227,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                     .refresh(force: true);
                                 ref.invalidate(walletsForCustomerListProvider);
                                 ref.invalidate(
-                                  dailyPendingSummaryProvider(txDay),
+                                  dailyWalletCountsProvider(txDay),
                                 );
                               },
                               child: ListView(
@@ -1126,27 +1243,22 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                         minHeight: 2,
                                       ),
                                     ),
-                                  for (
-                                    var i = 0;
-                                    i < filteredCustomers.length;
-                                    i++
-                                  ) ...[
-                                    if (i > 0) const Divider(height: 1),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 10,
-                                      ),
-                                      child: _customerWalletGroup(
-                                        context,
-                                        colorScheme,
-                                        filteredCustomers[i],
-                                        walletsMap[filteredCustomers[i]
-                                                .customerId] ??
-                                            const <CustomerWallet>[],
-                                        recordedWalletIds,
-                                      ),
-                                    ),
-                                  ],
+                                  ...(_viewStyle == _DailyCheckViewStyle.sorted
+                                      ? _buildSortedCustomerChildren(
+                                          context,
+                                          colorScheme,
+                                          filteredCustomers,
+                                          walletsMap,
+                                          recordedWalletIds,
+                                        )
+                                      : _buildGroupedCustomerChildren(
+                                          context,
+                                          colorScheme,
+                                          filteredCustomers,
+                                          walletsMap,
+                                          recordedWalletIds,
+                                          customerWalletSummaries,
+                                        )),
                                   if (listState.nextCursor != null) ...[
                                     const Divider(height: 1),
                                     if (listState.loadingMore)
@@ -1198,24 +1310,360 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     return customers;
   }
 
-  List<Customer> _applyDailyFilter(
+  List<_DailyCustomerGroupSection> _groupedCustomerSections(
     List<Customer> customers,
-    bool Function(Customer) customerFullySaved,
   ) {
+    final byKey = <String, List<Customer>>{};
+    final byTitle = <String, String>{};
+
+    for (final customer in customers) {
+      final key = customer.group?.id ?? _unassignedGroupKey;
+      byKey.putIfAbsent(key, () => <Customer>[]).add(customer);
+      byTitle[key] = customer.group?.name ?? 'Not assigned';
+    }
+
+    final keys = byKey.keys.toList()
+      ..sort((a, b) {
+        final aUnassigned = a == _unassignedGroupKey;
+        final bUnassigned = b == _unassignedGroupKey;
+        if (aUnassigned != bUnassigned) {
+          return aUnassigned ? 1 : -1;
+        }
+        final compare = byTitle[a]!.toLowerCase().compareTo(
+          byTitle[b]!.toLowerCase(),
+        );
+        return _sortOrder == _AlphabetSortOrder.az ? compare : -compare;
+      });
+
+    return keys
+        .map(
+          (key) => _DailyCustomerGroupSection(
+            key: key,
+            title: byTitle[key]!,
+            customers: byKey[key]!,
+            isUngrouped: key == _unassignedGroupKey,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  List<Widget> _buildSortedCustomerChildren(
+    BuildContext context,
+    ColorScheme colorScheme,
+    List<Customer> customers,
+    Map<String, List<CustomerWallet>> walletsMap,
+    Set<String> recordedWalletIds,
+  ) {
+    final children = <Widget>[];
+    for (var index = 0; index < customers.length; index++) {
+      if (index > 0) {
+        children.add(const Divider(height: 1));
+      }
+      final customer = customers[index];
+      children.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: _customerWalletGroup(
+            context,
+            colorScheme,
+            customer,
+            walletsMap[customer.customerId] ?? const <CustomerWallet>[],
+            recordedWalletIds,
+          ),
+        ),
+      );
+    }
+    return children;
+  }
+
+  List<Widget> _buildGroupedCustomerChildren(
+    BuildContext context,
+    ColorScheme colorScheme,
+    List<Customer> customers,
+    Map<String, List<CustomerWallet>> walletsMap,
+    Set<String> recordedWalletIds,
+    Map<String, _DailyWalletSummary> customerWalletSummaries,
+  ) {
+    final sections = _groupedCustomerSections(customers);
+    final children = <Widget>[];
+
+    for (var sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+      final section = sections[sectionIndex];
+      if (sectionIndex > 0) {
+        children.add(const SizedBox(height: 16));
+      }
+
+      final sectionWalletSummary = _combineWalletSummaries(
+        section.customers.map(
+          (customer) =>
+              customerWalletSummaries[customer.customerId] ??
+              const _DailyWalletSummary(),
+        ),
+      );
+      children.add(
+        _DailyGroupSectionHeader(
+          title: section.title,
+          subtitle:
+              '${section.customers.length} customer(s) • ${sectionWalletSummary.totalWalletCount} wallet(s)',
+          icon: section.isUngrouped
+              ? Icons.person_off_outlined
+              : Icons.group_work_outlined,
+          savedWalletCount: sectionWalletSummary.savedWalletCount,
+          pendingWalletCount: sectionWalletSummary.pendingWalletCount,
+          isExpanded: _isGroupExpanded(section.key),
+          onTap: () => _toggleGroupExpanded(section.key),
+        ),
+      );
+      if (_isGroupExpanded(section.key)) {
+        children.add(const SizedBox(height: 8));
+        for (
+          var customerIndex = 0;
+          customerIndex < section.customers.length;
+          customerIndex++
+        ) {
+          if (customerIndex > 0) {
+            children.add(const Divider(height: 1));
+          }
+          final customer = section.customers[customerIndex];
+          children.add(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: _customerWalletGroup(
+                context,
+                colorScheme,
+                customer,
+                walletsMap[customer.customerId] ?? const <CustomerWallet>[],
+                recordedWalletIds,
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    return children;
+  }
+
+  List<Customer> _applyDailyFilter(
+    List<Customer> customers, {
+    required bool Function(Customer) customerHasSavedWallet,
+    required bool Function(Customer) customerHasPendingWallet,
+  }) {
     switch (_dailyFilter) {
       case _DailyCheckFilter.all:
         return customers;
       case _DailyCheckFilter.saved:
-        return customers.where(customerFullySaved).toList();
+        return customers.where(customerHasSavedWallet).toList();
       case _DailyCheckFilter.notSaved:
-        return customers.where((c) => !customerFullySaved(c)).toList();
+        return customers.where(customerHasPendingWallet).toList();
     }
+  }
+
+  _DailyWalletSummary _summarizeWallets(
+    List<CustomerWallet> wallets,
+    Set<String> recordedWalletIds,
+  ) {
+    final totalWalletCount = wallets.length;
+    final savedWalletCount = wallets
+        .where((wallet) => recordedWalletIds.contains(wallet.id))
+        .length;
+    return _DailyWalletSummary(
+      totalWalletCount: totalWalletCount,
+      savedWalletCount: savedWalletCount,
+      pendingWalletCount: totalWalletCount - savedWalletCount,
+    );
+  }
+
+  _DailyWalletSummary _combineWalletSummaries(
+    Iterable<_DailyWalletSummary> summaries,
+  ) {
+    var totalWalletCount = 0;
+    var savedWalletCount = 0;
+    var pendingWalletCount = 0;
+
+    for (final summary in summaries) {
+      totalWalletCount += summary.totalWalletCount;
+      savedWalletCount += summary.savedWalletCount;
+      pendingWalletCount += summary.pendingWalletCount;
+    }
+
+    return _DailyWalletSummary(
+      totalWalletCount: totalWalletCount,
+      savedWalletCount: savedWalletCount,
+      pendingWalletCount: pendingWalletCount,
+    );
   }
 }
 
 enum _AlphabetSortOrder { az, za }
 
+enum _DailyCheckViewStyle { sorted, grouped }
+
 enum _DailyCheckFilter { all, saved, notSaved }
+
+class _DailyCustomerGroupSection {
+  const _DailyCustomerGroupSection({
+    required this.key,
+    required this.title,
+    required this.customers,
+    required this.isUngrouped,
+  });
+
+  final String key;
+  final String title;
+  final List<Customer> customers;
+  final bool isUngrouped;
+}
+
+class _DailyGroupSectionHeader extends StatelessWidget {
+  const _DailyGroupSectionHeader({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.savedWalletCount,
+    required this.pendingWalletCount,
+    required this.isExpanded,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final int savedWalletCount;
+  final int pendingWalletCount;
+  final bool isExpanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: colorScheme.primary, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _DailySectionCountChip(
+                        label: 'Saved',
+                        count: savedWalletCount,
+                        icon: Icons.check_circle_outline,
+                        foregroundColor: Colors.green.shade700,
+                        backgroundColor: Colors.green.withValues(alpha: 0.12),
+                      ),
+                      _DailySectionCountChip(
+                        label: 'Not saved',
+                        count: pendingWalletCount,
+                        icon: Icons.pending_actions_outlined,
+                        foregroundColor: Colors.red.shade700,
+                        backgroundColor: Colors.red.withValues(alpha: 0.12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              isExpanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyWalletSummary {
+  const _DailyWalletSummary({
+    this.totalWalletCount = 0,
+    this.savedWalletCount = 0,
+    this.pendingWalletCount = 0,
+  });
+
+  final int totalWalletCount;
+  final int savedWalletCount;
+  final int pendingWalletCount;
+}
+
+class _DailySectionCountChip extends StatelessWidget {
+  const _DailySectionCountChip({
+    required this.label,
+    required this.count,
+    required this.icon,
+    required this.foregroundColor,
+    required this.backgroundColor,
+  });
+
+  final String label;
+  final int count;
+  final IconData icon;
+  final Color foregroundColor;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foregroundColor),
+          const SizedBox(width: 6),
+          Text(
+            '$label $count',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: foregroundColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _CustomerDetailLine extends StatelessWidget {
   const _CustomerDetailLine({

@@ -4,6 +4,7 @@ import '../../core/logging/app_logger.dart';
 import '../api/wallet_api.dart';
 import '../api/withdrawal_api.dart';
 import 'models.dart';
+import 'recorded_daily_days_month.dart';
 
 class WalletRepo {
   WalletRepo({WalletApi? walletApi, WithdrawalApi? withdrawalApi, Uuid? uuid})
@@ -97,8 +98,24 @@ class WalletRepo {
     return _walletApi.fetchRecordedDailyPaymentWalletIds(txDay);
   }
 
+  Future<RecordedDailyDaysMonth> fetchRecordedDailyPaymentDaysByMonth({
+    required String customerId,
+    required String walletId,
+    required String month,
+  }) {
+    return _walletApi.fetchRecordedDailyPaymentDaysByMonth(
+      customerId: customerId,
+      walletId: walletId,
+      month: month,
+    );
+  }
+
   Future<DailyPendingSummary> fetchDailyPendingSummary(String txDay) {
     return _walletApi.fetchDailyPendingSummary(txDay);
+  }
+
+  Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) {
+    return _walletApi.fetchDailyWalletCounts(txDay);
   }
 
   Future<void> requestWithdraw({

@@ -4,6 +4,7 @@ import '../../core/logging/app_logger.dart';
 import '../api/customer_api.dart';
 import '../api/media_api.dart';
 import '../wallet/models.dart';
+import 'customer_group_model.dart';
 import 'customer_media.dart';
 import 'customer_model.dart';
 
@@ -146,6 +147,10 @@ class CustomerRepo {
     return _customerApi.fetchCustomerStatusCounts();
   }
 
+  Future<CustomerGroupListResult> fetchCustomerGroups() {
+    return _customerApi.fetchCustomerGroups();
+  }
+
   Future<void> patchCustomerStatus({
     required String customerId,
     required String canonicalStatus,
@@ -155,6 +160,30 @@ class CustomerRepo {
       customerId: customerId,
       canonicalStatus: canonicalStatus,
       statusReason: statusReason,
+    );
+  }
+
+  Future<CustomerGroupSummary> createCustomerGroup({required String name}) {
+    return _customerApi.createCustomerGroup(
+      name: name,
+      idempotencyKey: _uuid.v4(),
+    );
+  }
+
+  Future<CustomerGroupSummary> updateCustomerGroup({
+    required String groupId,
+    required String name,
+  }) {
+    return _customerApi.updateCustomerGroup(groupId: groupId, name: name);
+  }
+
+  Future<void> assignCustomerGroup({
+    required String customerId,
+    required String? groupId,
+  }) {
+    return _customerApi.assignCustomerGroup(
+      customerId: customerId,
+      groupId: groupId,
     );
   }
 

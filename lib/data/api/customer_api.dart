@@ -1,4 +1,5 @@
 import '../customers/customer_model.dart';
+import '../customers/customer_group_model.dart';
 import '../wallet/models.dart';
 import 'api_client.dart';
 
@@ -99,6 +100,26 @@ class CustomerApi {
     );
   }
 
+  Future<CustomerGroupListResult> fetchCustomerGroups() async {
+    final data = await _client.getJson('/customers/groups');
+    final groups = asJsonList(data['groups'], fieldName: 'groups')
+        .map((item) => CustomerGroupSummary.fromBackendMap(asJsonMap(item)))
+        .toList(growable: false);
+    final unassigned = data['unassignedCustomerCount'];
+    final unassignedCustomerCount = unassigned is int
+        ? unassigned
+        : unassigned is num
+        ? unassigned.toInt()
+        : unassigned is String
+        ? int.tryParse(unassigned) ?? 0
+        : 0;
+
+    return CustomerGroupListResult(
+      groups: groups,
+      unassignedCustomerCount: unassignedCustomerCount,
+    );
+  }
+
   Future<Customer?> fetchCustomer(String customerId) async {
     try {
       final data = await _client.getJson('/customers/$customerId');
@@ -147,6 +168,33 @@ class CustomerApi {
     };
   }
 
+  Future<CustomerGroupSummary> createCustomerGroup({
+    required String name,
+    required String idempotencyKey,
+  }) async {
+    final data = await _client.postJson(
+      '/customers/groups',
+      extraHeaders: {'Idempotency-Key': idempotencyKey},
+      body: {'name': name.trim()},
+    );
+    return CustomerGroupSummary.fromBackendMap(
+      asJsonMap(data['group'], fieldName: 'group'),
+    );
+  }
+
+  Future<CustomerGroupSummary> updateCustomerGroup({
+    required String groupId,
+    required String name,
+  }) async {
+    final data = await _client.patchJson(
+      '/customers/groups/$groupId',
+      body: {'name': name.trim()},
+    );
+    return CustomerGroupSummary.fromBackendMap(
+      asJsonMap(data['group'], fieldName: 'group'),
+    );
+  }
+
   Future<void> updateCustomer({
     required String customerId,
     required String fullName,
@@ -183,6 +231,16 @@ class CustomerApi {
         if (statusReason != null && statusReason.trim().isNotEmpty)
           'statusReason': statusReason.trim(),
       },
+    );
+  }
+
+  Future<void> assignCustomerGroup({
+    required String customerId,
+    required String? groupId,
+  }) async {
+    await _client.patchJson(
+      '/customers/$customerId/group',
+      body: {'groupId': groupId},
     );
   }
 

@@ -58,6 +58,7 @@ Customer buildCustomer({
     createdAt: DateTime(2025, 1, 1),
     createdByUid: 'admin-1',
     media: const CustomerMedia(),
+    group: null,
     balanceCents: 0,
   );
 }

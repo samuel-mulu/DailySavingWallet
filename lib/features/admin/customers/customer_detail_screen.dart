@@ -13,6 +13,7 @@ import '../../../data/wallet/models.dart';
 import '../../data/repository_providers.dart';
 import '../../wallet/wallet_providers.dart';
 import '../../wallet/widgets/transaction_tile.dart';
+import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
 import 'widgets/customer_profile_avatar.dart';
 import 'widgets/customer_media_form_section.dart';
 import 'widgets/customer_media_gallery_card.dart';
@@ -1124,6 +1125,29 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     CustomerWallet wallet,
     String type,
   ) {
+    if (type == 'DAILY_PAYMENT') {
+      showAdminBulkDailySavingSheet(
+        context: context,
+        customerId: customer.customerId,
+        customerName: customer.fullName,
+        wallet: wallet,
+        onWalletUpdated: (updated) async {
+          if (updated != null) {
+            ref
+                .read(
+                  walletStaleProvider(
+                    (customerId: customer.customerId, walletId: wallet.id),
+                  ).notifier,
+                )
+                .applyWallet(updated);
+          }
+          _reloadLedger();
+        },
+        onRefreshAfterBatch: _reloadLedger,
+      );
+      return;
+    }
+
     final amountCtrl = TextEditingController(
       text: type == 'DAILY_PAYMENT'
           ? MoneyEtb.formatCents(wallet.dailyTargetCents)

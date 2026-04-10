@@ -32,8 +32,12 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     super.initState();
     _index = widget.initialTab.index;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(adminCustomerIdsStaleProvider.notifier).ensureFresh(force: false);
-      ref.read(pendingWithdrawalsStaleProvider.notifier).ensureFresh(force: false);
+      ref
+          .read(adminCustomerIdsStaleProvider.notifier)
+          .ensureFresh(force: false);
+      ref
+          .read(pendingWithdrawalsStaleProvider.notifier)
+          .ensureFresh(force: false);
     });
   }
 
@@ -44,12 +48,12 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   Widget build(BuildContext context) {
     final txDay = _txDay(_dailyBadgeDate);
     ref.watch(recordedDailyWalletIdsProvider(txDay));
-    final pendingSummary = ref.watch(dailyPendingSummaryProvider(txDay));
+    final dailyWalletCounts = ref.watch(dailyWalletCountsProvider(txDay));
     final pendingItems =
         ref.watch(pendingWithdrawalsStaleProvider).data ?? const [];
 
     final pendingDailyCount =
-        pendingSummary.valueOrNull?.pendingCustomerCount ?? 0;
+        dailyWalletCounts.valueOrNull?.pendingWalletCount ?? 0;
     final pendingApprovalCount = pendingItems.length;
 
     final Widget body = switch (_index) {
@@ -90,8 +94,8 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                       child: Text(
                         title,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     IconButton(
@@ -123,7 +127,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, -2),
             ),
@@ -131,7 +135,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         ),
         child: NavigationBar(
           backgroundColor: Colors.white,
-          indicatorColor: const Color(0xFF8B5CF6).withOpacity(0.15),
+          indicatorColor: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
           selectedIndex: _index,
           onDestinationSelected: (i) {
             setState(() => _index = i);
@@ -140,7 +144,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                 ref
                     .read(recordedDailyWalletIdsProvider(txDay).notifier)
                     .refresh(force: true);
-                ref.invalidate(dailyPendingSummaryProvider(txDay));
+                ref.invalidate(dailyWalletCountsProvider(txDay));
                 ref
                     .read(adminCustomerIdsStaleProvider.notifier)
                     .refresh(force: true);
@@ -170,10 +174,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
               ),
               selectedIcon: _buildBadgeIcon(
                 count: pendingDailyCount,
-                child: const Icon(
-                  Icons.add_circle,
-                  color: Color(0xFF8B5CF6),
-                ),
+                child: const Icon(Icons.add_circle, color: Color(0xFF8B5CF6)),
               ),
               label: 'Daily',
             ),
@@ -209,10 +210,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     );
   }
 
-  Widget _buildBadgeIcon({
-    required int count,
-    required Widget child,
-  }) {
+  Widget _buildBadgeIcon({required int count, required Widget child}) {
     return Badge(
       label: Text(count.toString()),
       isLabelVisible: count > 0,

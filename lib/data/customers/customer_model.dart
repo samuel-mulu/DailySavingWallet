@@ -1,4 +1,5 @@
 import 'customer_media.dart';
+import 'customer_group_model.dart';
 
 /// Canonical lifecycle values stored on [Customer.status] (lowercase snake).
 abstract final class CustomerLifecycleStatus {
@@ -54,6 +55,7 @@ class Customer {
   final DateTime? createdAt;
   final String createdByUid;
   final CustomerMedia media;
+  final CustomerGroupSummary? group;
 
   /// Balance from list endpoint when present (avoids per-row wallet GET).
   final int balanceCents;
@@ -71,6 +73,7 @@ class Customer {
     required this.createdAt,
     required this.createdByUid,
     required this.media,
+    required this.group,
     this.balanceCents = 0,
   });
 
@@ -97,6 +100,7 @@ class Customer {
             ? rawMedia.map((key, value) => MapEntry('$key', value))
             : null,
       ),
+      group: _parseGroup(json['group']),
       balanceCents: _toInt(json['balanceCents']),
     );
   }
@@ -121,6 +125,8 @@ class Customer {
         phone.toLowerCase().contains(q) ||
         companyName.toLowerCase().contains(q);
   }
+
+  String get groupName => group?.name ?? 'Not assigned';
 }
 
 int _toInt(Object? value) {
@@ -158,4 +164,16 @@ String _normalizeStatus(Object? value) {
       }
       return CustomerLifecycleStatus.active;
   }
+}
+
+CustomerGroupSummary? _parseGroup(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return CustomerGroupSummary.fromBackendMap(value);
+  }
+  if (value is Map) {
+    return CustomerGroupSummary.fromBackendMap(
+      value.map((key, item) => MapEntry('$key', item)),
+    );
+  }
+  return null;
 }

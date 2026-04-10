@@ -1,4 +1,5 @@
 import '../wallet/models.dart';
+import '../wallet/recorded_daily_days_month.dart';
 import 'api_client.dart';
 
 class WalletTotals {
@@ -21,6 +22,18 @@ class DailyPendingSummary {
 
   const DailyPendingSummary({
     required this.pendingCustomerCount,
+    required this.pendingWalletCount,
+  });
+}
+
+class DailyWalletCounts {
+  final int activeWalletCount;
+  final int savedWalletCount;
+  final int pendingWalletCount;
+
+  const DailyWalletCounts({
+    required this.activeWalletCount,
+    required this.savedWalletCount,
     required this.pendingWalletCount,
   });
 }
@@ -104,6 +117,18 @@ class WalletApi {
     );
   }
 
+  Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) async {
+    final data = await _client.getJson(
+      '/wallet/stats/reports/daily',
+      queryParameters: {'txDay': txDay},
+    );
+    return DailyWalletCounts(
+      activeWalletCount: _toInt(data['activeWallets']),
+      savedWalletCount: _toInt(data['savedWalletCount']),
+      pendingWalletCount: _toInt(data['pendingWalletCount']),
+    );
+  }
+
   Future<Map<String, dynamic>> fetchMonthlySavingsReport(String month) {
     return _client.getJson(
       '/wallet/stats/reports/monthly',
@@ -134,6 +159,18 @@ class WalletApi {
     );
     final raw = asJsonList(data['walletIds'], fieldName: 'walletIds');
     return raw.map((e) => '$e').toSet();
+  }
+
+  Future<RecordedDailyDaysMonth> fetchRecordedDailyPaymentDaysByMonth({
+    required String customerId,
+    required String walletId,
+    required String month,
+  }) async {
+    final data = await _client.getJson(
+      '/wallet/$customerId/daily-payments/recorded-days',
+      queryParameters: {'walletId': walletId, 'month': month},
+    );
+    return RecordedDailyDaysMonth.fromBackendMap(data);
   }
 
   Future<DailyPendingSummary> fetchDailyPendingSummary(String txDay) async {
@@ -206,16 +243,13 @@ class WalletApi {
   }) async {
     final data = await _client.patchJson(
       '/wallet/$customerId/wallets/$walletId/status',
-      body: {
-        'targetStatus': targetStatus,
-        'reason': reason.trim(),
-      },
+      body: {'targetStatus': targetStatus, 'reason': reason.trim()},
     );
     return walletFromMutationPayload(data);
   }
 
   Future<({WalletStatusHealth health, List<WalletStatusEvent> events})>
-      fetchWalletStatusHistory({
+  fetchWalletStatusHistory({
     required String customerId,
     required String walletId,
   }) async {

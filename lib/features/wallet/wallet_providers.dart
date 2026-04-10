@@ -4,6 +4,7 @@ import '../../core/config/cache_ttl.dart';
 import '../../core/data/stale_fetch_state.dart';
 import '../../data/api/wallet_api.dart';
 import '../../data/wallet/models.dart';
+import '../../data/wallet/recorded_daily_days_month.dart';
 import '../customers/customer_list_notifier.dart';
 import '../data/repository_providers.dart';
 
@@ -11,6 +12,12 @@ import '../data/repository_providers.dart';
 final dailyPendingSummaryProvider = FutureProvider.autoDispose
     .family<DailyPendingSummary, String>((ref, txDay) {
       return ref.read(walletRepoProvider).fetchDailyPendingSummary(txDay);
+    });
+
+/// Server-computed wallet totals for the selected daily check date.
+final dailyWalletCountsProvider = FutureProvider.autoDispose
+    .family<DailyWalletCounts, String>((ref, txDay) {
+      return ref.read(walletRepoProvider).fetchDailyWalletCounts(txDay);
     });
 
 /// All wallets for each customer currently visible in [customerListNotifierProvider].
@@ -35,8 +42,12 @@ final walletStaleProvider = NotifierProvider.autoDispose
       WalletFamilyKey
     >(WalletStaleNotifier.new);
 
-class WalletStaleNotifier extends AutoDisposeFamilyNotifier<
-    StaleFetchState<WalletSnapshot?>, WalletFamilyKey> {
+class WalletStaleNotifier
+    extends
+        AutoDisposeFamilyNotifier<
+          StaleFetchState<WalletSnapshot?>,
+          WalletFamilyKey
+        > {
   bool _inFlight = false;
 
   @override
@@ -63,10 +74,9 @@ class WalletStaleNotifier extends AutoDisposeFamilyNotifier<
     final prev = state;
     state = prev.copyWith(isRefreshing: true, clearError: true);
     try {
-      final w = await ref.read(walletRepoProvider).fetchWallet(
-            key.customerId,
-            walletId: key.walletId,
-          );
+      final w = await ref
+          .read(walletRepoProvider)
+          .fetchWallet(key.customerId, walletId: key.walletId);
       state = StaleFetchState(
         data: w,
         isRefreshing: false,
@@ -103,8 +113,12 @@ final recentLedgerStaleProvider = NotifierProvider.autoDispose
       WalletFamilyKey
     >(RecentLedgerNotifier.new);
 
-class RecentLedgerNotifier extends AutoDisposeFamilyNotifier<
-    StaleFetchState<List<LedgerTx>>, WalletFamilyKey> {
+class RecentLedgerNotifier
+    extends
+        AutoDisposeFamilyNotifier<
+          StaleFetchState<List<LedgerTx>>,
+          WalletFamilyKey
+        > {
   bool _inFlight = false;
 
   @override
@@ -131,7 +145,9 @@ class RecentLedgerNotifier extends AutoDisposeFamilyNotifier<
     final prev = state;
     state = prev.copyWith(isRefreshing: true, clearError: true);
     try {
-      final items = await ref.read(walletRepoProvider).fetchRecentLedger(
+      final items = await ref
+          .read(walletRepoProvider)
+          .fetchRecentLedger(
             key.customerId,
             limit: limit,
             walletId: key.walletId,
@@ -192,10 +208,9 @@ class RecordedDailyWalletIdsNotifier
     final prev = state;
     state = prev.copyWith(isRefreshing: true, clearError: true);
     try {
-      final ids =
-          await ref.read(walletRepoProvider).fetchRecordedDailyPaymentWalletIds(
-                txDay,
-              );
+      final ids = await ref
+          .read(walletRepoProvider)
+          .fetchRecordedDailyPaymentWalletIds(txDay);
       state = StaleFetchState(
         data: ids,
         isRefreshing: false,
@@ -224,3 +239,14 @@ class RecordedDailyWalletIdsNotifier
     );
   }
 }
+
+typedef RecordedDaysMonthKey = ({String customerId, String walletId, String month});
+
+final recordedDailyDaysByMonthProvider = FutureProvider.autoDispose
+    .family<RecordedDailyDaysMonth, RecordedDaysMonthKey>((ref, key) {
+      return ref.read(walletRepoProvider).fetchRecordedDailyPaymentDaysByMonth(
+        customerId: key.customerId,
+        walletId: key.walletId,
+        month: key.month,
+      );
+    });
