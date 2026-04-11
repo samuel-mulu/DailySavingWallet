@@ -76,6 +76,7 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
   final TextEditingController _noteCtrl = TextEditingController();
   final Set<String> _selectedIsoDays = <String>{};
   final Map<String, Set<String>> _recordedByMonth = <String, Set<String>>{};
+  final Set<String> _monthsLoading = <String>{};
   DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
   bool _loadingRecorded = false;
   bool _running = false;
@@ -95,7 +96,7 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
         setState(() => _calendarModeService = service);
       }
     });
-    unawaited(_loadRecordedMonth(_monthKey(_visibleMonth), force: true));
+    unawaited(_loadRecordedMonth(_monthKey(_visibleMonth)));
   }
 
   @override
@@ -104,21 +105,52 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
     super.dispose();
   }
 
-  Future<void> _loadRecordedMonth(String month, {bool force = false}) async {
-    if (_loadingRecorded && !force) return;
-    if (!force && _recordedByMonth.containsKey(month)) return;
-    setState(() => _loadingRecorded = true);
+  /// Single GET for one `yyyy-MM` bucket; no UI state.
+  Future<Set<String>> _fetchRecordedDaysForMonth(String month) async {
+    final res = await _repo.fetchRecordedDailyPaymentDaysByMonth(
+      customerId: widget.customerId,
+      walletId: widget.wallet.id,
+      month: month,
+    );
+    return Set<String>.from(res.recordedTxDays);
+  }
+
+  Future<void> _loadRecordedMonth(String month) async {
+    if (_recordedByMonth.containsKey(month)) return;
+    if (_monthsLoading.contains(month)) return;
+
+    _monthsLoading.add(month);
+    if (_monthsLoading.length == 1 && mounted) {
+      setState(() => _loadingRecorded = true);
+    }
+
     try {
-      final res = await _repo.fetchRecordedDailyPaymentDaysByMonth(
-        customerId: widget.customerId,
-        walletId: widget.wallet.id,
-        month: month,
-      );
-      _recordedByMonth[month] = res.recordedTxDays;
+      final days = await _fetchRecordedDaysForMonth(month);
+      if (!mounted) return;
+      _recordedByMonth[month] = days;
       _maybePreselectToday();
     } finally {
-      if (mounted) setState(() => _loadingRecorded = false);
+      _monthsLoading.remove(month);
+      if (mounted) {
+        setState(() {
+          _loadingRecorded = _monthsLoading.isNotEmpty;
+        });
+      }
     }
+  }
+
+  /// Refreshes all months in [months] in parallel before bulk POSTs (no loading bar).
+  Future<void> _prefetchMonthsForBatch(Set<String> months) async {
+    if (months.isEmpty) return;
+    final entries = await Future.wait(
+      months.map((m) async => MapEntry(m, await _fetchRecordedDaysForMonth(m))),
+    );
+    if (!mounted) return;
+    setState(() {
+      for (final e in entries) {
+        _recordedByMonth[e.key] = e.value;
+      }
+    });
   }
 
   void _maybePreselectToday() {
@@ -147,9 +179,7 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
 
     final selected = _selectedIsoDays.toList()..sort();
     final months = selected.map((d) => d.substring(0, 7)).toSet();
-    for (final m in months) {
-      await _loadRecordedMonth(m, force: true);
-    }
+    await _prefetchMonthsForBatch(months);
 
     final pending = <String>[];
     for (final iso in selected) {

@@ -264,86 +264,101 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     final customerBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => _showCustomerOverviewModal(
-              context,
-              customer,
-              wallets: wallets,
-              recordedWalletIds: recordedWalletIds,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              child: Row(
-                children: [
-                  CustomerProfileAvatar(
-                    customer: customer,
-                    radius: 22,
-                    enablePreview: true,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          customer.fullName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => _showCustomerOverviewModal(
+                      context,
+                      customer,
+                      wallets: wallets,
+                      recordedWalletIds: recordedWalletIds,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4, bottom: 2),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustomerProfileAvatar(
+                            customer: customer,
+                            radius: 22,
+                            enablePreview: true,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                                fontSize: 12,
-                              ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (showGroupLineOnCustomer) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'Group: ${customer.groupName}',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  customer.fullName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                        fontSize: 12,
+                                      ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (showGroupLineOnCustomer) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Group: ${customer.groupName}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ],
-                      ],
+                      ),
                     ),
                   ),
-                  if (singleWallet != null) walletActionIcons(singleWallet),
-                  if (singleWallet == null) statusIcon,
-                  if (multiWallet) ...[
-                    const SizedBox(width: 4),
-                    IconButton(
-                      onPressed: () =>
-                          _toggleCustomerExpanded(customer.customerId),
-                      tooltip: isExpanded ? 'Hide wallets' : 'Show wallets',
-                      icon: AnimatedRotation(
-                        duration: const Duration(milliseconds: 180),
-                        turns: isExpanded ? 0.5 : 0,
-                        child: const Icon(Icons.expand_more_rounded),
-                      ),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ],
-                ],
+                ),
               ),
-            ),
+              if (singleWallet != null) walletActionIcons(singleWallet),
+              if (singleWallet == null) statusIcon,
+              if (multiWallet) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: () =>
+                      _toggleCustomerExpanded(customer.customerId),
+                  tooltip: isExpanded ? 'Hide wallets' : 'Show wallets',
+                  icon: AnimatedRotation(
+                    duration: const Duration(milliseconds: 180),
+                    turns: isExpanded ? 0.5 : 0,
+                    child: const Icon(Icons.expand_more_rounded),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ],
           ),
         ),
         if (multiWallet)

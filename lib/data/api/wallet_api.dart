@@ -7,12 +7,21 @@ class WalletTotals {
   final int totalCreditCents;
   final int companyWalletBalanceCents;
   final int companyFeeRevenueCents;
+  /// All non-company (customer) wallets.
+  final int totalCustomerWalletCount;
+  /// Wallets with balance &gt; 0 (matches [totalSavingCents] aggregate).
+  final int walletsWithPositiveBalanceCount;
+  /// Wallets with balance &lt; 0 (matches [totalCreditCents] aggregate).
+  final int walletsWithNegativeBalanceCount;
 
   const WalletTotals({
     required this.totalSavingCents,
     required this.totalCreditCents,
     required this.companyWalletBalanceCents,
     required this.companyFeeRevenueCents,
+    this.totalCustomerWalletCount = 0,
+    this.walletsWithPositiveBalanceCount = 0,
+    this.walletsWithNegativeBalanceCount = 0,
   });
 }
 
@@ -107,6 +116,13 @@ class WalletApi {
       totalCreditCents: _toInt(data['totalCreditCents']),
       companyWalletBalanceCents: _toInt(data['companyWalletBalanceCents']),
       companyFeeRevenueCents: _toInt(data['companyFeeRevenueCents']),
+      totalCustomerWalletCount: _toInt(data['totalCustomerWalletCount']),
+      walletsWithPositiveBalanceCount: _toInt(
+        data['walletsWithPositiveBalanceCount'],
+      ),
+      walletsWithNegativeBalanceCount: _toInt(
+        data['walletsWithNegativeBalanceCount'],
+      ),
     );
   }
 

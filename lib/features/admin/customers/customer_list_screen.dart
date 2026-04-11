@@ -2,13 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
 
 import '../../../core/money/money.dart';
 import '../../../core/routing/routes.dart';
 import '../../../core/ui/empty_state.dart';
 import '../../../core/ui/filter_count_chip.dart';
 import '../../../data/customers/customer_model.dart';
+import '../../../data/wallet/models.dart';
 import '../../customers/customer_list_notifier.dart';
+import '../../wallet/wallet_providers.dart';
+import 'customer_balances_report_pdf.dart';
 import 'customer_detail_screen.dart';
 import 'widgets/customer_profile_avatar.dart';
 
@@ -41,9 +45,75 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
     super.dispose();
   }
 
+  Future<void> _exportCustomerBalancesPdf(
+    BuildContext context, {
+    required List<Customer> customers,
+  }) async {
+    final walletsAsync = ref.read(walletsForCustomerListProvider);
+    if (walletsAsync.isLoading && !walletsAsync.hasValue) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Loading wallet data… try again in a moment.')),
+      );
+      return;
+    }
+    if (walletsAsync.hasError) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load wallets: ${walletsAsync.error}')),
+      );
+      return;
+    }
+    final map = walletsAsync.value ?? {};
+    if (customers.isEmpty) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No customers to export.')),
+      );
+      return;
+    }
+
+    try {
+      final bytes = await buildCustomerBalancesPdf(
+        customers: customers,
+        walletsByCustomerId: map,
+        title: 'Customer balances report',
+        generatedAt: DateTime.now(),
+        filterDescription: _filterDescription(),
+      );
+      final name =
+          'customer-balances-${DateTime.now().toIso8601String().split('T').first}.pdf';
+      if (!context.mounted) return;
+      await Printing.sharePdf(bytes: bytes, filename: name);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not build PDF: $e')),
+      );
+    }
+  }
+
+  String _filterDescription() {
+    final parts = <String>[];
+    final q = _searchQuery.trim();
+    if (q.isNotEmpty) {
+      parts.add('Search: "$q"');
+    }
+    switch (_balanceFilter) {
+      case _CustomerBalanceFilter.all:
+        parts.add('Filter: All customers');
+      case _CustomerBalanceFilter.debt:
+        parts.add('Filter: Debt / Credit');
+      case _CustomerBalanceFilter.positiveSaving:
+        parts.add('Filter: Positive saving');
+    }
+    return parts.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final listState = ref.watch(customerListNotifierProvider);
+    final walletsAsync = ref.watch(walletsForCustomerListProvider);
     final colorScheme = Theme.of(context).colorScheme;
     final hasSearch = _searchQuery.trim().isNotEmpty;
 
@@ -119,6 +189,17 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
+                    IconButton(
+                      tooltip: 'Export PDF',
+                      onPressed: walletsAsync.isLoading && !walletsAsync.hasValue
+                          ? null
+                          : () => _exportCustomerBalancesPdf(
+                                context,
+                                customers: filteredCustomers,
+                              ),
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                    ),
+                    const SizedBox(width: 4),
                     Container(
                       decoration: BoxDecoration(
                         color: colorScheme.surface,
@@ -240,9 +321,12 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: () => ref
-                            .read(customerListNotifierProvider.notifier)
-                            .refresh(force: true),
+                        onRefresh: () async {
+                          await ref
+                              .read(customerListNotifierProvider.notifier)
+                              .refresh(force: true);
+                          ref.invalidate(walletsForCustomerListProvider);
+                        },
                         child: ListView.builder(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                           itemCount:
@@ -271,10 +355,16 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                             }
 
                             final customer = filteredCustomers[index];
+                            final walletsMap = walletsAsync.valueOrNull;
+                            final wallets = walletsMap?[customer.customerId];
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
                               child: CustomerCard(
                                 customer: customer,
+                                wallets: wallets,
+                                walletsLoading: walletsAsync.isLoading &&
+                                    !walletsAsync.hasValue,
+                                walletsFailed: walletsAsync.hasError,
                                 onTap: () {
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
@@ -366,15 +456,64 @@ enum _CustomerBalanceFilter { all, debt, positiveSaving }
 class CustomerCard extends StatelessWidget {
   final Customer customer;
   final VoidCallback onTap;
+  final List<CustomerWallet>? wallets;
+  final bool walletsLoading;
+  final bool walletsFailed;
 
-  const CustomerCard({super.key, required this.customer, required this.onTap});
+  const CustomerCard({
+    super.key,
+    required this.customer,
+    required this.onTap,
+    this.wallets,
+    this.walletsLoading = false,
+    this.walletsFailed = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final balance = customer.balanceCents;
-    final hasDebt = balance < 0;
-    final hasSaving = balance > 0;
+    final ws = wallets;
+    final hasWalletData =
+        ws != null && ws.isNotEmpty && !walletsLoading && !walletsFailed;
+
+    late final int balance;
+    late final int dailyTargetCents;
+    late final int creditLimitCents;
+    late final bool hasDebt;
+    late final bool hasSaving;
+
+    if (hasWalletData) {
+      final wlist = ws;
+      if (wlist.length == 1) {
+        final w = wlist.first;
+        balance = w.balanceCents;
+        dailyTargetCents = w.dailyTargetCents;
+        creditLimitCents = w.creditLimitCents;
+        hasDebt = balance < 0;
+        hasSaving = balance > 0;
+      } else {
+        balance = _sumWalletBalances(wlist);
+        dailyTargetCents = _sumWalletField(wlist, (x) => x.dailyTargetCents);
+        creditLimitCents = _sumWalletField(wlist, (x) => x.creditLimitCents);
+        hasDebt = balance < 0;
+        hasSaving = balance > 0;
+      }
+    } else {
+      balance = customer.balanceCents;
+      dailyTargetCents = customer.dailyTargetCents;
+      creditLimitCents = customer.creditLimitCents;
+      hasDebt = balance < 0;
+      hasSaving = balance > 0;
+    }
+
+    List<CustomerWallet>? walletsForSubrows;
+    if (hasWalletData) {
+      final w = ws;
+      if (w.length > 1) {
+        walletsForSubrows = w;
+      }
+    }
+
     final accent = hasDebt
         ? colorScheme.error
         : hasSaving
@@ -475,7 +614,7 @@ class CustomerCard extends StatelessWidget {
                     Expanded(
                       child: _CustomerMetricBlock(
                         label: 'Daily Target',
-                        value: MoneyEtb.formatCents(customer.dailyTargetCents),
+                        value: MoneyEtb.formatCents(dailyTargetCents),
                         color: colorScheme.primary,
                       ),
                     ),
@@ -483,12 +622,100 @@ class CustomerCard extends StatelessWidget {
                     Expanded(
                       child: _CustomerMetricBlock(
                         label: 'Credit Limit',
-                        value: MoneyEtb.formatCents(customer.creditLimitCents),
+                        value: MoneyEtb.formatCents(creditLimitCents),
                         color: const Color(0xFFF59E0B),
                       ),
                     ),
                   ],
                 ),
+                if (walletsForSubrows != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${walletsForSubrows.length} wallets',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...walletsForSubrows.map(
+                    (w) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: colorScheme.outlineVariant.withValues(
+                              alpha: 0.5,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    w.label,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (w.isPrimary)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.primary
+                                          .withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      'Primary',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Balance ${MoneyEtb.formatCents(w.balanceCents)} · '
+                              'Daily ${MoneyEtb.formatCents(w.dailyTargetCents)} · '
+                              'Limit ${MoneyEtb.formatCents(w.creditLimitCents)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -497,6 +724,15 @@ class CustomerCard extends StatelessWidget {
     );
   }
 }
+
+int _sumWalletBalances(List<CustomerWallet> list) =>
+    list.fold(0, (a, w) => a + w.balanceCents);
+
+int _sumWalletField(
+  List<CustomerWallet> list,
+  int Function(CustomerWallet w) pick,
+) =>
+    list.fold(0, (a, w) => a + pick(w));
 
 class _BalanceStatusChip extends StatelessWidget {
   const _BalanceStatusChip({required this.label, required this.color});

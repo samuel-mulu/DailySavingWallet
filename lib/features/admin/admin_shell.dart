@@ -97,19 +97,85 @@ class _AdminShellState extends ConsumerState<AdminShell> {
                 child: Row(
                   children: [
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                    if (_index == 0)
+                      const Spacer()
+                    else
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Reports',
-                      icon: const Icon(Icons.assessment_outlined),
-                      onPressed: () => setState(() => _index = 4),
-                    ),
+                    if (_index == 0) ...[
+                      PopupMenuButton<AlphabetSortOrder>(
+                        tooltip: 'Sort customers',
+                        initialValue: _dailySortOrder,
+                        onSelected: (value) =>
+                            setState(() => _dailySortOrder = value),
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: AlphabetSortOrder.az,
+                            child: Text('Sort A–Z'),
+                          ),
+                          PopupMenuItem(
+                            value: AlphabetSortOrder.za,
+                            child: Text('Sort Z–A'),
+                          ),
+                        ],
+                        icon: Icon(
+                          _dailySortOrder == AlphabetSortOrder.az
+                              ? Icons.sort_by_alpha
+                              : Icons.sort_by_alpha_outlined,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Manage groups',
+                        icon: const Icon(Icons.group_work_outlined),
+                        onPressed: () async {
+                          await Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  const CustomerGroupManagementScreen(),
+                            ),
+                          );
+                          if (!mounted) return;
+                          await ref
+                              .read(customerListNotifierProvider.notifier)
+                              .refresh(force: true);
+                          ref.invalidate(walletsForCustomerListProvider);
+                        },
+                      ),
+                      PopupMenuButton<DailyCheckViewStyle>(
+                        tooltip: 'List style',
+                        initialValue: _dailyViewStyle,
+                        onSelected: (value) =>
+                            setState(() => _dailyViewStyle = value),
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: DailyCheckViewStyle.sorted,
+                            child: Text('Sorted list'),
+                          ),
+                          PopupMenuItem(
+                            value: DailyCheckViewStyle.grouped,
+                            child: Text('By group'),
+                          ),
+                        ],
+                        icon: Icon(
+                          _dailyViewStyle == DailyCheckViewStyle.grouped
+                              ? Icons.view_stream_outlined
+                              : Icons.view_agenda_outlined,
+                        ),
+                      ),
+                    ],
+                    if (_index != 0)
+                      IconButton(
+                        tooltip: 'Reports',
+                        icon: const Icon(Icons.assessment_outlined),
+                        onPressed: () => setState(() => _index = 4),
+                      ),
                     IconButton(
                       tooltip: 'Settings',
                       icon: const Icon(Icons.settings_outlined),
