@@ -1,74 +1,106 @@
-import 'dart:async';
-
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
-class SyncStatusBanner extends StatefulWidget {
+import '../network/reachability_host.dart';
+
+/// Device offline vs server unreachable (e.g. cold Render), plus Retry for health probe.
+class SyncStatusBanner extends StatelessWidget {
   const SyncStatusBanner({super.key});
 
   @override
-  State<SyncStatusBanner> createState() => _SyncStatusBannerState();
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ReachabilityHost.instance,
+      builder: (context, _) {
+        final host = ReachabilityHost.instance;
+        if (!host.deviceOnline) {
+          return _BannerChrome(
+            background: Theme.of(context).colorScheme.errorContainer,
+            foreground: Theme.of(context).colorScheme.onErrorContainer,
+            icon: Icons.wifi_off_rounded,
+            title: 'No internet connection',
+            subtitle:
+                'Reconnect to use the app. Saved data may still show until refreshed.',
+            action: null,
+          );
+        }
+        if (host.serverReachable == false) {
+          return _BannerChrome(
+            background: Theme.of(context).colorScheme.tertiaryContainer,
+            foreground: Theme.of(context).colorScheme.onTertiaryContainer,
+            icon: Icons.cloud_off_rounded,
+            title: 'Cannot reach server',
+            subtitle:
+                'Free hosting may sleep after idle time — wait 30–60s and tap Retry, '
+                'or try again in a moment.',
+            action: TextButton(
+              onPressed: () => ReachabilityHost.instance.probeServer(),
+              child: const Text('Retry'),
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
 }
 
-class _SyncStatusBannerState extends State<SyncStatusBanner> {
-  final _connectivity = Connectivity();
-  StreamSubscription<List<ConnectivityResult>>? _sub;
-  bool _offline = false;
+class _BannerChrome extends StatelessWidget {
+  const _BannerChrome({
+    required this.background,
+    required this.foreground,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+  });
 
-  @override
-  void initState() {
-    super.initState();
-    _init();
-    _sub = _connectivity.onConnectivityChanged.listen((results) {
-      _setOffline(!_isOnline(results));
-    });
-  }
-
-  Future<void> _init() async {
-    final results = await _connectivity.checkConnectivity();
-    _setOffline(!_isOnline(results));
-  }
-
-  bool _isOnline(List<ConnectivityResult> results) {
-    // If any non-none connectivity is present, treat as online.
-    return results.any((r) => r != ConnectivityResult.none);
-  }
-
-  void _setOffline(bool v) {
-    if (_offline == v) return;
-    if (!mounted) return;
-    setState(() => _offline = v);
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    super.dispose();
-  }
+  final Color background;
+  final Color foreground;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
-    if (!_offline) return const SizedBox.shrink();
-
-    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.errorContainer,
+      color: background,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.wifi_off, color: scheme.onErrorContainer),
-            const SizedBox(width: 8),
+            Icon(icon, color: foreground, size: 22),
+            const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                'Offline — showing cached data when available',
-                style: TextStyle(color: scheme.onErrorContainer, fontWeight: FontWeight.w600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: foreground.withValues(alpha: 0.92),
+                      fontSize: 12,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
               ),
             ),
+            if (action != null) action!,
           ],
         ),
       ),
     );
   }
 }
-

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/config/backend_feature_flags.dart';
 import '../../core/logging/app_logger.dart';
+import '../../core/network/reachability_host.dart';
 
 class BackendApiException implements Exception {
   final int statusCode;
@@ -265,23 +266,41 @@ class ApiClient {
     required bool requiresAuth,
     required Future<http.Response> Function(Map<String, String> headers) send,
   }) async {
-    var headers = await _buildHeaders(requiresAuth: requiresAuth);
-    var response = await send(headers);
-
-    if (response.statusCode == 401 && requiresAuth) {
-      if (BackendFeatureFlags.enableNodeReadLogging) {
-        AppLogger.warn(
-          '[ApiClient] Received 401 from backend, attempting refresh before retry',
-        );
-      }
-      final refreshedAccessToken = await _refreshBackendSession();
-      if (refreshedAccessToken != null && refreshedAccessToken.isNotEmpty) {
-        headers = await _buildHeaders(requiresAuth: requiresAuth);
+    try {
+      var headers = await _buildHeaders(requiresAuth: requiresAuth);
+      http.Response response;
+      try {
         response = await send(headers);
+      } catch (e) {
+        ReachabilityHost.instance.notifyApiTransportFailure(e);
+        rethrow;
       }
-    }
 
-    return _unwrapData(response);
+      if (response.statusCode == 401 && requiresAuth) {
+        if (BackendFeatureFlags.enableNodeReadLogging) {
+          AppLogger.warn(
+            '[ApiClient] Received 401 from backend, attempting refresh before retry',
+          );
+        }
+        final refreshedAccessToken = await _refreshBackendSession();
+        if (refreshedAccessToken != null && refreshedAccessToken.isNotEmpty) {
+          headers = await _buildHeaders(requiresAuth: requiresAuth);
+          try {
+            response = await send(headers);
+          } catch (e) {
+            ReachabilityHost.instance.notifyApiTransportFailure(e);
+            rethrow;
+          }
+        }
+      }
+
+      final data = _unwrapData(response);
+      ReachabilityHost.instance.notifyApiSuccess();
+      return data;
+    } on BackendApiException {
+      ReachabilityHost.instance.notifyApiSuccess();
+      rethrow;
+    }
   }
 
   Uri _buildUri(

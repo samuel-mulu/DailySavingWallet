@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/routing/app_navigator_key.dart';
 import 'core/routing/routes.dart';
 
 class App extends StatelessWidget {
@@ -8,6 +9,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Daily Saving Wallet',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),

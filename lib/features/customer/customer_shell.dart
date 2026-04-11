@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/reachability_host.dart';
 import '../../core/ui/coming_soon_placeholder.dart';
 import '../../core/ui/sync_status_banner.dart';
 import '../../data/users/user_model.dart';
@@ -37,6 +40,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
+    unawaited(ReachabilityHost.instance.probeServer());
     final uid = ref.read(authUidProvider).valueOrNull;
     if (uid == null) return;
     final profile = ref.read(appUserProfileProvider(uid));

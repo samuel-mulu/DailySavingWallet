@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/network/reachability_host.dart';
 import '../../core/ui/sync_status_banner.dart';
 import '../customers/admin_customer_ids_notifier.dart';
 import '../customers/customer_list_notifier.dart';
@@ -24,7 +27,8 @@ class AdminShell extends ConsumerStatefulWidget {
   ConsumerState<AdminShell> createState() => _AdminShellState();
 }
 
-class _AdminShellState extends ConsumerState<AdminShell> {
+class _AdminShellState extends ConsumerState<AdminShell>
+    with WidgetsBindingObserver {
   late int _index;
   DateTime _dailyBadgeDate = DateTime.now();
   AlphabetSortOrder _dailySortOrder = AlphabetSortOrder.az;
@@ -33,6 +37,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _index = widget.initialTab.index;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref
@@ -42,6 +47,19 @@ class _AdminShellState extends ConsumerState<AdminShell> {
           .read(pendingWithdrawalsStaleProvider.notifier)
           .ensureFresh(force: false);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(ReachabilityHost.instance.probeServer());
+    }
   }
 
   String _txDay(DateTime d) =>
