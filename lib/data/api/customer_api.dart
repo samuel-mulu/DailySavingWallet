@@ -46,7 +46,8 @@ class CustomerApi {
 
   Future<CustomerPage> fetchCustomersPage({
     String? search,
-    String status = 'active',
+    String? status = 'active',
+    String? walletStatus,
     int limit = 50,
     String? cursor,
   }) async {
@@ -54,7 +55,10 @@ class CustomerApi {
       '/customers',
       queryParameters: {
         'limit': '$limit',
-        'status': CustomerLifecycleStatus.toApiValue(status),
+        if (status != null && status.trim().isNotEmpty)
+          'status': CustomerLifecycleStatus.toApiValue(status),
+        if (walletStatus != null && walletStatus.trim().isNotEmpty)
+          'walletStatus': walletStatus.trim().toUpperCase(),
         if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
         if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
       },
@@ -70,12 +74,14 @@ class CustomerApi {
 
   Future<List<Customer>> fetchCustomers({
     String? search,
-    String status = 'active',
+    String? status = 'active',
+    String? walletStatus,
     int limit = 200,
   }) async {
     final page = await fetchCustomersPage(
       search: search,
       status: status,
+      walletStatus: walletStatus,
       limit: limit,
     );
     return page.items;

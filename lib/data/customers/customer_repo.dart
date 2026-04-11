@@ -20,13 +20,15 @@ class CustomerRepo {
 
   Future<CustomerPage> fetchCustomersPage({
     String? search,
-    String status = 'active',
+    String? status = 'active',
+    String? walletStatus,
     int limit = 50,
     String? cursor,
   }) {
     return _customerApi.fetchCustomersPage(
       search: search,
       status: status,
+      walletStatus: walletStatus,
       limit: limit,
       cursor: cursor,
     );
@@ -66,12 +68,14 @@ class CustomerRepo {
 
   Future<List<Customer>> fetchCustomers({
     String? search,
-    String status = 'active',
+    String? status = 'active',
+    String? walletStatus,
     int limit = 200,
   }) {
     return _customerApi.fetchCustomers(
       search: search,
       status: status,
+      walletStatus: walletStatus,
       limit: limit,
     );
   }

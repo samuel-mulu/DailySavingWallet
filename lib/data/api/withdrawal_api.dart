@@ -6,6 +6,15 @@ class WithdrawalApi {
 
   WithdrawalApi({ApiClient? client}) : _client = client ?? ApiClient();
 
+  Future<WithdrawPreview> previewWithdraw({required int amountCents}) async {
+    final data = await _client.getJson(
+      '/withdrawals/preview',
+      queryParameters: {'amountCents': '$amountCents'},
+    );
+
+    return WithdrawPreview.fromBackendMap(data);
+  }
+
   Future<List<WithdrawRequest>> fetchPendingWithdrawals({
     int limit = 20,
   }) async {
@@ -29,7 +38,8 @@ class WithdrawalApi {
       '/withdrawals',
       queryParameters: {
         'limit': '$limit',
-        if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
+        if (customerId != null && customerId.isNotEmpty)
+          'customerId': customerId,
         if (status != null && status.isNotEmpty) 'status': status.toUpperCase(),
         if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
       },
@@ -53,7 +63,8 @@ class WithdrawalApi {
       body: {
         'amountCents': amountCents,
         'reason': reason,
-        if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
+        if (customerId != null && customerId.isNotEmpty)
+          'customerId': customerId,
         if (walletId != null && walletId.isNotEmpty) 'walletId': walletId,
       },
     );
@@ -64,12 +75,14 @@ class WithdrawalApi {
   Future<void> approveWithdraw({
     required String requestId,
     required String idempotencyKey,
-    int approvalFeeCents = 0,
+    int? amountCents,
   }) async {
     await _client.postJson(
       '/withdrawals/$requestId/approve',
       extraHeaders: {'Idempotency-Key': idempotencyKey},
-      body: <String, dynamic>{'approvalFeeCents': approvalFeeCents},
+      body: <String, dynamic>{
+        if (amountCents != null) 'amountCents': amountCents,
+      },
     );
   }
 
@@ -81,9 +94,7 @@ class WithdrawalApi {
     await _client.postJson(
       '/withdrawals/$requestId/reject',
       extraHeaders: {'Idempotency-Key': idempotencyKey},
-      body: {
-        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-      },
+      body: {if (note != null && note.trim().isNotEmpty) 'note': note.trim()},
     );
   }
 }

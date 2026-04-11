@@ -23,18 +23,29 @@ class TransactionDetailsSheet extends StatelessWidget {
             _row('Direction', tx.direction),
             _row('Amount', MoneyEtb.formatCents(tx.amountCents)),
             if (tx.balanceAfterCents != null)
-              _row('Balance After', MoneyEtb.formatCents(tx.balanceAfterCents!)),
+              _row(
+                'Balance After',
+                MoneyEtb.formatCents(tx.balanceAfterCents!),
+              ),
             _row('Transaction Date', _formatDate(tx.txDate)),
             _row('Created At', _formatDateTime(tx.createdAt)),
             _row('By', tx.createdByUid.isEmpty ? '—' : tx.createdByUid),
             if (meta.isNotEmpty) ...[
               if (tx.type == 'WITHDRAW_APPROVE') ...[
                 const SizedBox(height: 8),
-                Text('Withdrawal Approval', style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Withdrawal Approval',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 _row(
                   'Requested',
                   MoneyEtb.formatCents(_toInt(meta['requestedAmountCents'])),
                 ),
+                if (meta['approvedAmountCents'] != null)
+                  _row(
+                    'Approved',
+                    MoneyEtb.formatCents(_toInt(meta['approvedAmountCents'])),
+                  ),
                 _row(
                   'Fee',
                   MoneyEtb.formatCents(_toInt(meta['approvalFeeCents'])),
@@ -47,7 +58,8 @@ class TransactionDetailsSheet extends StatelessWidget {
               const SizedBox(height: 12),
               Text('Meta', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              for (final e in meta.entries) _row(e.key, e.value?.toString() ?? '—'),
+              for (final e in meta.entries)
+                _row(e.key, e.value?.toString() ?? '—'),
             ],
             const SizedBox(height: 12),
           ],
@@ -62,7 +74,10 @@ class TransactionDetailsSheet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 110, child: Text(k, style: const TextStyle(fontWeight: FontWeight.w600))),
+          SizedBox(
+            width: 110,
+            child: Text(k, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
           Expanded(child: Text(v)),
         ],
       ),
@@ -86,4 +101,3 @@ class TransactionDetailsSheet extends StatelessWidget {
     return 0;
   }
 }
-

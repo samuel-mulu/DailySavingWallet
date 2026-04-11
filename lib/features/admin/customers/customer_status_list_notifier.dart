@@ -23,10 +23,7 @@ class CustomerStatusListNotifier
     );
   }
 
-  Future<void> loadInitial({
-    String? walletStatusFilter,
-    String? search,
-  }) async {
+  Future<void> loadInitial({String? walletStatusFilter, String? search}) async {
     final prev = state;
     final filter = walletStatusFilter ?? prev.walletStatusFilter;
     final appliedSearch = search ?? prev.searchApplied;
@@ -42,9 +39,12 @@ class CustomerStatusListNotifier
     );
     final withRefreshing = state;
     try {
-      // Customer status is still customer-level. Wallet filtering is applied in UI.
-      final page = await ref.read(customerRepoProvider).fetchCustomersPage(
+      final page = await ref
+          .read(customerRepoProvider)
+          .fetchCustomersPage(
             search: appliedSearch.isEmpty ? null : appliedSearch,
+            status: null,
+            walletStatus: filter == WalletStatusFilter.all ? null : filter,
             limit: 50,
           );
       state = CustomerStatusListState(
@@ -57,23 +57,29 @@ class CustomerStatusListNotifier
         searchApplied: appliedSearch,
       );
     } catch (e) {
-      state = withRefreshing.copyWith(
-        isRefreshing: false,
-        error: e,
-      );
+      state = withRefreshing.copyWith(isRefreshing: false, error: e);
     }
   }
 
   Future<void> loadMore() async {
     final cur = state;
     final cursor = cur.nextCursor;
-    if (cursor == null || cursor.isEmpty || cur.loadingMore || cur.isRefreshing) {
+    if (cursor == null ||
+        cursor.isEmpty ||
+        cur.loadingMore ||
+        cur.isRefreshing) {
       return;
     }
     state = cur.copyWith(loadingMore: true, clearError: true);
     try {
-      final page = await ref.read(customerRepoProvider).fetchCustomersPage(
+      final page = await ref
+          .read(customerRepoProvider)
+          .fetchCustomersPage(
             search: cur.searchApplied.isEmpty ? null : cur.searchApplied,
+            status: null,
+            walletStatus: cur.walletStatusFilter == WalletStatusFilter.all
+                ? null
+                : cur.walletStatusFilter,
             limit: 50,
             cursor: cursor,
           );
@@ -92,7 +98,7 @@ class CustomerStatusListNotifier
   }
 
   Future<void> refresh() => loadInitial(
-        walletStatusFilter: state.walletStatusFilter,
-        search: state.searchApplied,
-      );
+    walletStatusFilter: state.walletStatusFilter,
+    search: state.searchApplied,
+  );
 }

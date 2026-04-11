@@ -84,6 +84,10 @@ class WalletRepo {
     return items.length;
   }
 
+  Future<WithdrawPreview> previewWithdraw({required int amountCents}) {
+    return _withdrawalApi.previewWithdraw(amountCents: amountCents);
+  }
+
   Future<Set<String>> fetchRecordedDailyPaymentCustomerIds(String txDay) {
     AppLogger.debug(
       '[WalletRepo] fetchRecordedDailyPaymentCustomerIds: txDay="$txDay"',
@@ -211,12 +215,12 @@ class WalletRepo {
   Future<void> approveWithdraw(
     String requestId, {
     String? idempotencyKey,
-    int approvalFeeCents = 0,
+    int? amountCents,
   }) async {
     await _withdrawalApi.approveWithdraw(
       requestId: requestId,
       idempotencyKey: idempotencyKey ?? _uuid.v4(),
-      approvalFeeCents: approvalFeeCents,
+      amountCents: amountCents,
     );
   }
 
@@ -262,5 +266,9 @@ class WalletRepo {
 
   Future<Map<String, dynamic>> fetchCompanyWalletReport({int limit = 30}) {
     return _walletApi.fetchCompanyWalletReport(limit: limit);
+  }
+
+  Future<WalletStatusCounts> fetchWalletStatusCounts({String? search}) {
+    return _walletApi.fetchWalletStatusCounts(search: search);
   }
 }

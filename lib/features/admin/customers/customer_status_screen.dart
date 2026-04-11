@@ -66,6 +66,7 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
   }
 
   Future<void> _refreshAll() async {
+    ref.invalidate(customerStatusCountsProvider);
     ref.invalidate(customerStatusWalletsProvider);
     await ref.read(customerStatusListNotifierProvider.notifier).refresh();
   }
@@ -82,20 +83,27 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
   @override
   Widget build(BuildContext context) {
     final listState = ref.watch(customerStatusListNotifierProvider);
+    final countsAsync = ref.watch(customerStatusCountsProvider);
     final walletsMapAsync = ref.watch(customerStatusWalletsProvider);
     final hasSearch = listState.searchApplied.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Customer wallet status'),
+        title: const Text('Wallet Status'),
         actions: [
           PopupMenuButton<_AlphabetSortOrder>(
             tooltip: 'Sort customers',
             initialValue: _sortOrder,
             onSelected: (v) => setState(() => _sortOrder = v),
             itemBuilder: (context) => const [
-              PopupMenuItem(value: _AlphabetSortOrder.az, child: Text('Sort A-Z')),
-              PopupMenuItem(value: _AlphabetSortOrder.za, child: Text('Sort Z-A')),
+              PopupMenuItem(
+                value: _AlphabetSortOrder.az,
+                child: Text('Sort A-Z'),
+              ),
+              PopupMenuItem(
+                value: _AlphabetSortOrder.za,
+                child: Text('Sort Z-A'),
+              ),
             ],
             icon: Icon(
               _sortOrder == _AlphabetSortOrder.az
@@ -114,26 +122,49 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  for (var i = 0; i < WalletStatusFilter.allValues.length; i++) ...[
+                  for (
+                    var i = 0;
+                    i < WalletStatusFilter.allValues.length;
+                    i++
+                  ) ...[
                     if (i > 0) const SizedBox(width: 8),
                     FilterCountChip(
-                      label: _labelForWalletStatus(WalletStatusFilter.allValues[i]),
-                      count: walletsMapAsync.valueOrNull == null
-                          ? 0
-                          : _countWalletsByStatus(
-                              walletsMapAsync.valueOrNull!,
-                              WalletStatusFilter.allValues[i],
-                            ),
+                      label: _labelForWalletStatus(
+                        WalletStatusFilter.allValues[i],
+                      ),
+                      count:
+                          countsAsync.valueOrNull?.countForStatus(
+                            WalletStatusFilter.allValues[i],
+                          ) ??
+                          (walletsMapAsync.valueOrNull == null
+                              ? 0
+                              : _countWalletsByStatus(
+                                  walletsMapAsync.valueOrNull!,
+                                  WalletStatusFilter.allValues[i],
+                                )),
                       selected:
                           listState.walletStatusFilter ==
-                              WalletStatusFilter.allValues[i],
-                      icon: _iconForWalletStatus(WalletStatusFilter.allValues[i]),
+                          WalletStatusFilter.allValues[i],
+                      icon: _iconForWalletStatus(
+                        WalletStatusFilter.allValues[i],
+                      ),
                       onTap: () => ref
                           .read(customerStatusListNotifierProvider.notifier)
-                          .setWalletStatusFilter(WalletStatusFilter.allValues[i]),
+                          .setWalletStatusFilter(
+                            WalletStatusFilter.allValues[i],
+                          ),
                     ),
                   ],
                 ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              'Counts and filters work per wallet. Closed wallets can be reopened back to Active.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -144,21 +175,21 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
               onChanged: (v) {
                 _debounce?.cancel();
                 _debounce = Timer(const Duration(milliseconds: 350), () {
-                  final wf =
-                      ref.read(customerStatusListNotifierProvider).walletStatusFilter;
+                  final wf = ref
+                      .read(customerStatusListNotifierProvider)
+                      .walletStatusFilter;
                   ref
                       .read(customerStatusListNotifierProvider.notifier)
-                      .loadInitial(
-                        search: v.trim(),
-                        walletStatusFilter: wf,
-                      );
+                      .loadInitial(search: v.trim(), walletStatusFilter: wf);
                 });
               },
               decoration: InputDecoration(
                 hintText: 'Search by name, phone, or company',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                fillColor: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -181,11 +212,23 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: const [
-                      SkeletonBox(width: double.infinity, height: 70, radius: 12),
+                      SkeletonBox(
+                        width: double.infinity,
+                        height: 70,
+                        radius: 12,
+                      ),
                       SizedBox(height: 10),
-                      SkeletonBox(width: double.infinity, height: 70, radius: 12),
+                      SkeletonBox(
+                        width: double.infinity,
+                        height: 70,
+                        radius: 12,
+                      ),
                       SizedBox(height: 10),
-                      SkeletonBox(width: double.infinity, height: 70, radius: 12),
+                      SkeletonBox(
+                        width: double.infinity,
+                        height: 70,
+                        radius: 12,
+                      ),
                     ],
                   );
                 }
@@ -202,10 +245,12 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
 
                 if (filtered.isEmpty) {
                   return EmptyState(
-                    icon: hasSearch ? Icons.person_search : Icons.filter_alt_off,
+                    icon: hasSearch
+                        ? Icons.person_search
+                        : Icons.filter_alt_off,
                     title: hasSearch
-                        ? 'No customers found'
-                        : 'No customers in this wallet status',
+                        ? 'No wallets found'
+                        : 'No wallets in this status',
                     message: hasSearch
                         ? 'Try a different search.'
                         : 'Pick another wallet status chip above.',
@@ -214,10 +259,13 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                             onPressed: () {
                               _searchCtrl.clear();
                               ref
-                                  .read(customerStatusListNotifierProvider.notifier)
+                                  .read(
+                                    customerStatusListNotifierProvider.notifier,
+                                  )
                                   .loadInitial(
                                     search: '',
-                                    walletStatusFilter: listState.walletStatusFilter,
+                                    walletStatusFilter:
+                                        listState.walletStatusFilter,
                                   );
                             },
                             icon: const Icon(Icons.clear),
@@ -231,7 +279,9 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                   onRefresh: _refreshAll,
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-                    itemCount: filtered.length + (listState.nextCursor != null ? 1 : 0),
+                    itemCount:
+                        filtered.length +
+                        (listState.nextCursor != null ? 1 : 0),
                     itemBuilder: (context, i) {
                       if (i >= filtered.length) {
                         if (listState.loadingMore) {
@@ -243,7 +293,9 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                         return Center(
                           child: TextButton(
                             onPressed: () => ref
-                                .read(customerStatusListNotifierProvider.notifier)
+                                .read(
+                                  customerStatusListNotifierProvider.notifier,
+                                )
                                 .loadMore(),
                             child: const Text('Load more'),
                           ),
@@ -251,8 +303,12 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                       }
 
                       final c = filtered[i];
-                      final wallets = walletsMap[c.customerId] ?? const <CustomerWallet>[];
-                      final totalBalance = wallets.fold<int>(0, (sum, w) => sum + w.balanceCents);
+                      final wallets =
+                          walletsMap[c.customerId] ?? const <CustomerWallet>[];
+                      final totalBalance = wallets.fold<int>(
+                        0,
+                        (sum, w) => sum + w.balanceCents,
+                      );
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
@@ -261,7 +317,9 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                             color: Theme.of(context).colorScheme.surface,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Theme.of(context).colorScheme.outlineVariant,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
                             ),
                           ),
                           child: Padding(
@@ -271,16 +329,28 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                               children: [
                                 Row(
                                   children: [
-                                    CustomerProfileAvatar(customer: c, radius: 20, enablePreview: true),
+                                    CustomerProfileAvatar(
+                                      customer: c,
+                                      radius: 20,
+                                      enablePreview: true,
+                                    ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          Text(c.fullName, style: Theme.of(context).textTheme.titleSmall),
+                                          Text(
+                                            c.fullName,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleSmall,
+                                          ),
                                           Text(
                                             '${c.companyName} • ${wallets.length} wallets • ${MoneyEtb.formatCents(totalBalance)}',
-                                            style: Theme.of(context).textTheme.bodySmall,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
                                           ),
                                         ],
                                       ),
@@ -291,7 +361,10 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                                       onPressed: () {
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
-                                            builder: (_) => CustomerDetailScreen(customerId: c.customerId),
+                                            builder: (_) =>
+                                                CustomerDetailScreen(
+                                                  customerId: c.customerId,
+                                                ),
                                           ),
                                         );
                                       },
@@ -299,7 +372,12 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                for (final w in wallets.where((w) => listState.walletStatusFilter == WalletStatusFilter.all || w.status == listState.walletStatusFilter))
+                                for (final w in wallets.where(
+                                  (w) =>
+                                      listState.walletStatusFilter ==
+                                          WalletStatusFilter.all ||
+                                      w.status == listState.walletStatusFilter,
+                                ))
                                   _WalletRow(
                                     customer: c,
                                     wallet: w,
@@ -368,7 +446,9 @@ class _WalletRow extends ConsumerWidget {
     Future<void> submit(String targetStatus) async {
       final reason = await _askReason(context, targetStatus);
       if (reason == null) return;
-      await ref.read(walletRepoProvider).updateWalletStatus(
+      await ref
+          .read(walletRepoProvider)
+          .updateWalletStatus(
             customerId: customer.customerId,
             walletId: wallet.id,
             targetStatus: targetStatus,
@@ -393,7 +473,10 @@ class _WalletRow extends ConsumerWidget {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
-            _TinyPill(label: wallet.status.toUpperCase(), color: labelColor),
+            _TinyPill(
+              label: _walletStatusDisplay(wallet.status),
+              color: labelColor,
+            ),
             const SizedBox(width: 8),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_horiz),
@@ -410,10 +493,11 @@ class _WalletRow extends ConsumerWidget {
 
   Future<String?> _askReason(BuildContext context, String targetStatus) async {
     final ctrl = TextEditingController();
+    final targetLabel = _walletStatusDisplay(targetStatus);
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Change to $targetStatus'),
+        title: Text('Change wallet to $targetLabel'),
         content: TextField(
           controller: ctrl,
           minLines: 2,
@@ -424,7 +508,10 @@ class _WalletRow extends ConsumerWidget {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, ctrl.text.trim()),
             child: const Text('Apply'),
@@ -439,9 +526,9 @@ class _WalletRow extends ConsumerWidget {
       case WalletStatusFilter.active:
         return [('FROZEN', 'Freeze'), ('CLOSED', 'Close')];
       case WalletStatusFilter.frozen:
-        return [('ACTIVE', 'Reactivate'), ('CLOSED', 'Close')];
+        return [('ACTIVE', 'Activate'), ('CLOSED', 'Close')];
       default:
-        return [('ACTIVE', 'Reactivate')];
+        return [('ACTIVE', 'Reopen')];
     }
   }
 }
@@ -464,10 +551,23 @@ class _TinyPill extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
+  }
+}
+
+String _walletStatusDisplay(String status) {
+  switch (status) {
+    case WalletStatusFilter.active:
+      return 'Active';
+    case WalletStatusFilter.frozen:
+      return 'Frozen';
+    case WalletStatusFilter.closed:
+      return 'Closed';
+    default:
+      return status;
   }
 }

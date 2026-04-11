@@ -10,6 +10,7 @@ import 'admin_tab.dart';
 import 'customers/customer_list_screen.dart';
 import 'tabs/admin_approvals_tab.dart';
 import 'tabs/admin_daily_check_tab.dart';
+import 'customers/customer_group_management_screen.dart';
 import 'tabs/admin_home_tab.dart';
 import 'tabs/admin_reports_tab.dart';
 import 'tabs/admin_settings_tab.dart';
@@ -26,6 +27,8 @@ class AdminShell extends ConsumerStatefulWidget {
 class _AdminShellState extends ConsumerState<AdminShell> {
   late int _index;
   DateTime _dailyBadgeDate = DateTime.now();
+  AlphabetSortOrder _dailySortOrder = AlphabetSortOrder.az;
+  DailyCheckViewStyle _dailyViewStyle = DailyCheckViewStyle.grouped;
 
   @override
   void initState() {
@@ -60,6 +63,10 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       0 => AdminDailyCheckTab(
         selectedDate: _dailyBadgeDate,
         onSelectedDateChanged: (date) => setState(() => _dailyBadgeDate = date),
+        sortOrder: _dailySortOrder,
+        onSortOrderChanged: (v) => setState(() => _dailySortOrder = v),
+        viewStyle: _dailyViewStyle,
+        onViewStyleChanged: (v) => setState(() => _dailyViewStyle = v),
       ),
       1 => const CustomerListScreen(),
       2 => AdminHomeTab(

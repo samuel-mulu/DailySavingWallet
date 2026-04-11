@@ -286,8 +286,11 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
 
           final data = snap.data ?? const <String, dynamic>{};
           final wallet = (data['wallet'] as Map?) ?? const {};
+          final summary = (data['summary'] as Map?) ?? const {};
           final history = (data['history'] as List?) ?? const [];
           final balanceCents = _toInt(wallet['balanceCents']);
+          final feeRevenueCents = _toInt(summary['feeRevenueCents']);
+          final feeEntryCount = _toInt(summary['feeEntryCount']);
           final isNegative = balanceCents < 0;
           final headerColor = isNegative
               ? const Color(0xFFEF5350)
@@ -296,135 +299,159 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
               ? const Color(0xFFE57373)
               : const Color(0xFF2DD4BF);
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [headerColor, accentColor],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(26),
-                  boxShadow: [
-                    BoxShadow(
-                      color: headerColor.withValues(alpha: 0.25),
-                      blurRadius: 18,
-                      offset: const Offset(0, 10),
+          return RefreshIndicator(
+            onRefresh: () async => setState(() {}),
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [headerColor, accentColor],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${wallet['displayName'] ?? 'Company Wallet'}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      if ((wallet['code'] as String?)?.isNotEmpty == true) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '${wallet['code']}',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.82),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 18),
-                      Text(
-                        'Current Balance',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.8),
-                          letterSpacing: 0.6,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        MoneyEtb.formatCents(balanceCents),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 34,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _WalletInfoChip(
-                            label: 'Status ${wallet['status'] ?? 'ACTIVE'}',
-                          ),
-                          _WalletInfoChip(
-                            label:
-                                '${history.length} history item${history.length == 1 ? '' : 's'}',
-                          ),
-                        ],
+                    borderRadius: BorderRadius.circular(26),
+                    boxShadow: [
+                      BoxShadow(
+                        color: headerColor.withValues(alpha: 0.25),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
                       ),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _WalletStatCard(
-                      label: 'Status',
-                      value: '${wallet['status'] ?? 'ACTIVE'}',
-                      color: const Color(0xFF8B5CF6),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _WalletStatCard(
-                      label: 'Recent Entries',
-                      value: '${history.length}',
-                      color: const Color(0xFFF59E0B),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'History',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              if (history.isEmpty)
-                const Card(
                   child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: Text('No company wallet history yet.'),
-                    ),
-                  ),
-                )
-              else
-                Card(
-                  child: Column(
-                    children: history
-                        .map(
-                          (entry) => TransactionTile(
-                            tx: LedgerTx.fromBackendMap(
-                              Map<String, dynamic>.from(entry as Map),
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${wallet['displayName'] ?? 'Company Wallet'}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if ((wallet['code'] as String?)?.isNotEmpty ==
+                            true) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '${wallet['code']}',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.82),
                             ),
                           ),
-                        )
-                        .toList(),
+                        ],
+                        const SizedBox(height: 18),
+                        Text(
+                          'Current Balance',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.8),
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          MoneyEtb.formatCents(balanceCents),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _WalletInfoChip(
+                              label: 'Status ${wallet['status'] ?? 'ACTIVE'}',
+                            ),
+                            _WalletInfoChip(
+                              label:
+                                  '${history.length} history item${history.length == 1 ? '' : 's'}',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _WalletStatCard(
+                        label: 'Fee Revenue',
+                        value: MoneyEtb.formatCents(feeRevenueCents),
+                        color: const Color(0xFF10B981),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _WalletStatCard(
+                        label: 'Fee Entries',
+                        value: '$feeEntryCount',
+                        color: const Color(0xFFF59E0B),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _WalletStatCard(
+                        label: 'Status',
+                        value: '${wallet['status'] ?? 'ACTIVE'}',
+                        color: const Color(0xFF8B5CF6),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _WalletStatCard(
+                        label: 'Recent Entries',
+                        value: '${history.length}',
+                        color: const Color(0xFF0EA5E9),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'History',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (history.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: Text('No company wallet history yet.'),
+                      ),
+                    ),
+                  )
+                else
+                  Card(
+                    child: Column(
+                      children: history
+                          .map(
+                            (entry) => TransactionTile(
+                              tx: LedgerTx.fromBackendMap(
+                                Map<String, dynamic>.from(entry as Map),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),

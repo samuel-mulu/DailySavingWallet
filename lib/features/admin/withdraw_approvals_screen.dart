@@ -109,93 +109,14 @@ class _WithdrawApprovalsScreenState
     final wallet = await _loadWallet(request);
     if (!mounted) return null;
 
-    final currentBalance = wallet?.balanceCents ?? 0;
-    return showDialog<int?>(
+    return showDialog<int>(
       context: context,
-      builder: (context) {
-        final feeCtrl = TextEditingController(text: '0.00');
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            int feeCents;
-            try {
-              feeCents = MoneyEtb.parseEtbToCents(feeCtrl.text.trim());
-            } on FormatException {
-              feeCents = -1;
-            }
-            final totalDebit =
-                request.amountCents + (feeCents < 0 ? 0 : feeCents);
-            final afterBalance = currentBalance - totalDebit;
-            final limitCents = wallet?.creditLimitCents ?? 0;
-            final debtCents = afterBalance < 0 ? -afterBalance : 0;
-            final exceedsLimit = limitCents > 0 && debtCents > limitCents;
-
-            return AlertDialog(
-              title: const Text('Approve Withdraw'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (customer != null) ...[
-                    Text(
-                      customer.fullName,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Text(customer.companyName),
-                    const Divider(height: 16),
-                  ],
-                  Text(
-                    'Requested: ${MoneyEtb.formatCents(request.amountCents)}',
-                  ),
-                  if (wallet != null) ...[
-                    const SizedBox(height: 6),
-                    Text('Wallet: ${wallet.label}'),
-                  ],
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: feeCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Approval fee (ETB)',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) => setLocalState(() {}),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Total debit: ${MoneyEtb.formatCents(totalDebit)}'),
-                  const SizedBox(height: 8),
-                  Text('After balance: ${MoneyEtb.formatCents(afterBalance)}'),
-                  if (afterBalance < 0)
-                    Text(
-                      limitCents > 0
-                          ? exceedsLimit
-                                ? 'Exceeds limit by ${MoneyEtb.formatCents(debtCents - limitCents)}'
-                                : 'Within credit limit'
-                          : 'Uses open credit balance',
-                      style: TextStyle(
-                        color: exceedsLimit ? Colors.red : Colors.orange,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: (feeCents < 0 || exceedsLimit)
-                      ? null
-                      : () => Navigator.pop(context, feeCents),
-                  child: const Text('Approve'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (context) => _ApproveWithdrawDialog(
+        repo: _repo,
+        request: request,
+        customer: customer,
+        wallet: wallet,
+      ),
     );
   }
 
@@ -267,14 +188,14 @@ class _WithdrawApprovalsScreenState
     WithdrawRequest request, {
     VoidCallback? onCompleted,
   }) async {
-    final fee = await _confirmApprove(request);
-    if (!mounted || fee == null) return;
+    final approvedAmountCents = await _confirmApprove(request);
+    if (!mounted || approvedAmountCents == null) return;
     _setBusy(request.id, true);
     try {
       await _repo.approveWithdraw(
         request.id,
         idempotencyKey: _uuid.v4(),
-        approvalFeeCents: fee,
+        amountCents: approvedAmountCents,
       );
       ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);
       unawaited(
@@ -457,9 +378,7 @@ class _WithdrawApprovalsScreenState
                           Expanded(
                             child: _MetricCard(
                               label: 'Fee',
-                              value: MoneyEtb.formatCents(
-                                request.approvalFeeCents,
-                              ),
+                              value: MoneyEtb.formatCents(request.feeCents),
                               color: const Color(0xFFF59E0B),
                             ),
                           ),
@@ -468,10 +387,7 @@ class _WithdrawApprovalsScreenState
                             child: _MetricCard(
                               label: 'Total Debit',
                               value: MoneyEtb.formatCents(
-                                request.approvedTotalDebitCents > 0
-                                    ? request.approvedTotalDebitCents
-                                    : request.amountCents +
-                                          request.approvalFeeCents,
+                                request.totalDebitCents,
                               ),
                               color: const Color(0xFF0EA5E9),
                             ),
@@ -839,6 +755,240 @@ class _RequestSheetData {
   final WalletSnapshot? wallet;
 }
 
+class _ApproveWithdrawDialog extends StatefulWidget {
+  const _ApproveWithdrawDialog({
+    required this.repo,
+    required this.request,
+    required this.customer,
+    required this.wallet,
+  });
+
+  final WalletRepo repo;
+  final WithdrawRequest request;
+  final Customer? customer;
+  final WalletSnapshot? wallet;
+
+  @override
+  State<_ApproveWithdrawDialog> createState() => _ApproveWithdrawDialogState();
+}
+
+class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
+  late final TextEditingController _amountCtrl;
+  Timer? _previewDebounce;
+  late WithdrawPreview _preview;
+  bool _previewBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _preview = widget.request.preview;
+    _amountCtrl = TextEditingController(
+      text: _formatEditableEtb(widget.request.amountCents),
+    );
+    _amountCtrl.addListener(_handleAmountChanged);
+  }
+
+  @override
+  void dispose() {
+    _previewDebounce?.cancel();
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  int? _tryParseAmountCents() {
+    final text = _amountCtrl.text.trim();
+    if (text.isEmpty) return null;
+    try {
+      return MoneyEtb.parseEtbToCents(text);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  void _handleAmountChanged() {
+    _previewDebounce?.cancel();
+
+    final amountCents = _tryParseAmountCents();
+    if (amountCents == null) {
+      setState(() => _previewBusy = false);
+      return;
+    }
+
+    setState(() {
+      _preview = WithdrawPreview.calculate(amountCents);
+      _previewBusy = true;
+    });
+
+    _previewDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _syncPreview(amountCents),
+    );
+  }
+
+  Future<void> _syncPreview(int amountCents) async {
+    try {
+      final preview = await widget.repo.previewWithdraw(
+        amountCents: amountCents,
+      );
+      if (!mounted || _tryParseAmountCents() != amountCents) return;
+      setState(() {
+        _preview = preview;
+        _previewBusy = false;
+      });
+    } catch (_) {
+      if (!mounted || _tryParseAmountCents() != amountCents) return;
+      setState(() => _previewBusy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final customer = widget.customer;
+    final wallet = widget.wallet;
+    final amountCents = _tryParseAmountCents();
+    final amountIsValid = amountCents != null;
+    final currentBalance = wallet?.balanceCents ?? 0;
+    final totalDebitCents = amountIsValid ? _preview.totalDebitCents : 0;
+    final afterBalance = currentBalance - totalDebitCents;
+    final limitCents = wallet?.creditLimitCents ?? 0;
+    final debtCents = afterBalance < 0 ? -afterBalance : 0;
+    final exceedsLimit =
+        amountIsValid && limitCents > 0 && debtCents > limitCents;
+
+    return AlertDialog(
+      title: const Text('Approve Withdraw'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (customer != null) ...[
+              Text(
+                customer.fullName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(customer.companyName),
+              const Divider(height: 20),
+            ],
+            Text(
+              'Requested: ${MoneyEtb.formatCents(widget.request.amountCents)}',
+            ),
+            if (wallet != null) ...[
+              const SizedBox(height: 6),
+              Text('Wallet: ${wallet.label}'),
+            ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amountCtrl,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Approve amount (ETB)',
+                helperText:
+                    'Fee uses the exact 1/30 rule. Example: 3000 -> 100.',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (!amountIsValid) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Enter a valid amount',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Approval summary',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _DialogPreviewRow(
+                    label: 'Approve amount',
+                    value: amountIsValid
+                        ? MoneyEtb.formatCents(_preview.amountCents)
+                        : 'Enter amount',
+                  ),
+                  const SizedBox(height: 8),
+                  _DialogPreviewRow(
+                    label: 'Fee',
+                    value: amountIsValid
+                        ? MoneyEtb.formatCents(_preview.feeCents)
+                        : 'Enter amount',
+                  ),
+                  const SizedBox(height: 8),
+                  _DialogPreviewRow(
+                    label: 'Total debit',
+                    value: amountIsValid
+                        ? MoneyEtb.formatCents(_preview.totalDebitCents)
+                        : 'Enter amount',
+                    emphasize: true,
+                  ),
+                  const SizedBox(height: 8),
+                  _DialogPreviewRow(
+                    label: 'After balance',
+                    value: amountIsValid
+                        ? MoneyEtb.formatCents(afterBalance)
+                        : 'Enter amount',
+                  ),
+                  if (_previewBusy) ...[
+                    const SizedBox(height: 10),
+                    const LinearProgressIndicator(minHeight: 2),
+                  ],
+                ],
+              ),
+            ),
+            if (amountIsValid && afterBalance < 0) ...[
+              const SizedBox(height: 10),
+              Text(
+                limitCents > 0
+                    ? exceedsLimit
+                          ? 'Exceeds limit by ${MoneyEtb.formatCents(debtCents - limitCents)}'
+                          : 'Within credit limit'
+                    : 'Uses open credit balance',
+                style: TextStyle(
+                  color: exceedsLimit ? Colors.red : Colors.orange,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: !amountIsValid || exceedsLimit
+              ? null
+              : () => Navigator.pop(context, amountCents),
+          child: const Text('Approve'),
+        ),
+      ],
+    );
+  }
+}
+
 class _RequestCard extends StatelessWidget {
   const _RequestCard({
     required this.request,
@@ -989,12 +1139,11 @@ class _RequestCard extends StatelessWidget {
                   runSpacing: 8,
                   children: [
                     _InfoPill(
-                      label:
-                          'Fee ${MoneyEtb.formatCents(request.approvalFeeCents)}',
+                      label: 'Fee ${MoneyEtb.formatCents(request.feeCents)}',
                     ),
                     _InfoPill(
                       label:
-                          'Total ${MoneyEtb.formatCents(request.approvedTotalDebitCents > 0 ? request.approvedTotalDebitCents : request.amountCents + request.approvalFeeCents)}',
+                          'Total ${MoneyEtb.formatCents(request.totalDebitCents)}',
                     ),
                   ],
                 ),
@@ -1030,6 +1179,46 @@ class _RequestCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DialogPreviewRow extends StatelessWidget {
+  const _DialogPreviewRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatEditableEtb(int cents) {
+  final whole = cents ~/ 100;
+  final fraction = (cents % 100).toString().padLeft(2, '0');
+  return '$whole.$fraction';
 }
 
 class _QueueSummaryCard extends StatelessWidget {

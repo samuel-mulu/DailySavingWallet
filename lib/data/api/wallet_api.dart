@@ -143,6 +143,18 @@ class WalletApi {
     );
   }
 
+  Future<WalletStatusCounts> fetchWalletStatusCounts({String? search}) async {
+    final data = await _client.getJson(
+      '/wallet/status-counts',
+      queryParameters: {
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    return WalletStatusCounts.fromBackendMap(
+      asJsonMap(data['counts'], fieldName: 'counts'),
+    );
+  }
+
   Future<Set<String>> fetchRecordedDailyPaymentCustomerIds(String txDay) async {
     final data = await _client.getJson(
       '/wallet/daily-payments/recorded-customers',

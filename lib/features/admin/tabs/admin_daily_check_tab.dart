@@ -16,18 +16,25 @@ import '../../../data/wallet/wallet_repo.dart';
 import '../../customers/customer_list_notifier.dart';
 import '../../wallet/wallet_providers.dart';
 import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
-import '../customers/customer_group_management_screen.dart';
 import '../customers/customer_detail_screen.dart';
 import '../customers/widgets/customer_profile_avatar.dart';
 
 class AdminDailyCheckTab extends ConsumerStatefulWidget {
   final DateTime selectedDate;
   final ValueChanged<DateTime>? onSelectedDateChanged;
+  final AlphabetSortOrder sortOrder;
+  final ValueChanged<AlphabetSortOrder>? onSortOrderChanged;
+  final DailyCheckViewStyle viewStyle;
+  final ValueChanged<DailyCheckViewStyle>? onViewStyleChanged;
 
   const AdminDailyCheckTab({
     super.key,
     required this.selectedDate,
     this.onSelectedDateChanged,
+    this.sortOrder = AlphabetSortOrder.az,
+    this.onSortOrderChanged,
+    this.viewStyle = DailyCheckViewStyle.grouped,
+    this.onViewStyleChanged,
   });
 
   @override
@@ -41,15 +48,23 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   String _searchQuery = '';
   late DateTime _selectedDate;
   Timer? _searchDebounce;
-  _AlphabetSortOrder _sortOrder = _AlphabetSortOrder.az;
-  _DailyCheckViewStyle _viewStyle = _DailyCheckViewStyle.grouped;
   _DailyCheckFilter _dailyFilter = _DailyCheckFilter.all;
   final Set<String> _expandedCustomerIds = <String>{};
   final Set<String> _expandedGroupKeys = <String>{};
+  late AlphabetSortOrder _localSortOrder;
+  late DailyCheckViewStyle _localViewStyle;
+
+  AlphabetSortOrder get _sortOrder =>
+      widget.onSortOrderChanged != null ? widget.sortOrder : _localSortOrder;
+
+  DailyCheckViewStyle get _viewStyle =>
+      widget.onViewStyleChanged != null ? widget.viewStyle : _localViewStyle;
 
   @override
   void initState() {
     super.initState();
+    _localSortOrder = widget.sortOrder;
+    _localViewStyle = widget.viewStyle;
     _selectedDate = widget.selectedDate;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(customerListNotifierProvider.notifier).loadInitial();
@@ -61,6 +76,14 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     super.didUpdateWidget(oldWidget);
     if (!_isSameDay(oldWidget.selectedDate, widget.selectedDate)) {
       _selectedDate = widget.selectedDate;
+    }
+    if (widget.onSortOrderChanged == null &&
+        oldWidget.sortOrder != widget.sortOrder) {
+      _localSortOrder = widget.sortOrder;
+    }
+    if (widget.onViewStyleChanged == null &&
+        oldWidget.viewStyle != widget.viewStyle) {
+      _localViewStyle = widget.viewStyle;
     }
   }
 
@@ -103,15 +126,142 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     ColorScheme colorScheme,
     Customer customer,
     List<CustomerWallet> wallets,
-    Set<String> recordedWalletIds,
-  ) {
+    Set<String> recordedWalletIds, {
+    required bool showGroupLineOnCustomer,
+  }) {
     final walletSummary = _summarizeWallets(wallets, recordedWalletIds);
     final allSaved =
         walletSummary.totalWalletCount > 0 &&
         walletSummary.pendingWalletCount == 0;
-    final isExpanded = _isCustomerExpanded(customer.customerId);
+    final multiWallet = wallets.length > 1;
+    final isExpanded =
+        multiWallet ? _isCustomerExpanded(customer.customerId) : true;
 
-    return Column(
+    final statusIcon = allSaved
+        ? Icon(
+            Icons.check_circle_outline,
+            color: colorScheme.primary,
+            size: 22,
+          )
+        : Icon(
+            Icons.pending_outlined,
+            color: colorScheme.tertiary,
+            size: 22,
+          );
+
+    final subtitle = multiWallet
+        ? '${customer.companyName} • ${walletSummary.totalWalletCount} wallets • ${walletSummary.savedWalletCount} saved • ${walletSummary.pendingWalletCount} pending'
+        : (wallets.isEmpty
+            ? '${customer.companyName} • No wallet'
+            : '${customer.companyName} • ${wallets.first.label} • ${MoneyEtb.formatCents(wallets.first.balanceCents)}');
+
+    Widget walletActionIcons(CustomerWallet w) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (recordedWalletIds.contains(w.id))
+              Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(
+                  Icons.check_circle_outline,
+                  color: colorScheme.primary,
+                  size: 18,
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(
+                  Icons.radio_button_unchecked,
+                  color: colorScheme.outline,
+                  size: 18,
+                ),
+              ),
+            IconButton(
+              icon: const Icon(Icons.savings_outlined),
+              iconSize: 22,
+              color: colorScheme.primary,
+              tooltip: 'Daily Saving',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              onPressed: () => _showPaymentModal(
+                context,
+                ref,
+                customer,
+                w,
+                'DAILY_PAYMENT',
+                _selectedDate,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              iconSize: 22,
+              color: colorScheme.secondary,
+              tooltip: 'Deposit',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              onPressed: () => _showPaymentModal(
+                context,
+                ref,
+                customer,
+                w,
+                'DEPOSIT',
+                _selectedDate,
+              ),
+            ),
+          ],
+        );
+
+    Widget multiWalletRows() => Padding(
+          padding: const EdgeInsets.only(left: 56, right: 4),
+          child: Column(
+            children: [
+              for (var i = 0; i < wallets.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                    height: 1,
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              wallets[i].label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 13,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              MoneyEtb.formatCents(wallets[i].balanceCents),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      walletActionIcons(wallets[i]),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+
+    final singleWallet = wallets.length == 1 ? wallets.first : null;
+
+    final customerBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Material(
@@ -149,155 +299,76 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${customer.companyName} • ${walletSummary.totalWalletCount} wallet(s) • ${walletSummary.savedWalletCount} saved • ${walletSummary.pendingWalletCount} not saved',
+                          subtitle,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                                 fontSize: 12,
                               ),
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Group: ${customer.groupName}',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: colorScheme.primary,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        if (showGroupLineOnCustomer) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Group: ${customer.groupName}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                  if (allSaved)
-                    const Icon(
-                      Icons.check_circle,
-                      color: Colors.green,
-                      size: 22,
-                    )
-                  else
-                    Icon(Icons.pending_actions, color: Colors.orange.shade700),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    onPressed: () =>
-                        _toggleCustomerExpanded(customer.customerId),
-                    tooltip: isExpanded ? 'Hide wallets' : 'Show wallets',
-                    icon: AnimatedRotation(
-                      duration: const Duration(milliseconds: 180),
-                      turns: isExpanded ? 0.5 : 0,
-                      child: const Icon(Icons.expand_more_rounded),
+                  if (singleWallet != null) walletActionIcons(singleWallet),
+                  if (singleWallet == null) statusIcon,
+                  if (multiWallet) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: () =>
+                          _toggleCustomerExpanded(customer.customerId),
+                      tooltip: isExpanded ? 'Hide wallets' : 'Show wallets',
+                      icon: AnimatedRotation(
+                        duration: const Duration(milliseconds: 180),
+                        turns: isExpanded ? 0.5 : 0,
+                        child: const Icon(Icons.expand_more_rounded),
+                      ),
+                      visualDensity: VisualDensity.compact,
                     ),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                  ],
                 ],
               ),
             ),
           ),
         ),
-        AnimatedCrossFade(
-          firstChild: const SizedBox.shrink(),
-          secondChild: Padding(
-            padding: const EdgeInsets.only(left: 56, right: 4),
-            child: Column(
-              children: [
-                for (final w in wallets) ...[
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                w.label,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                  fontSize: 13,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                MoneyEtb.formatCents(w.balanceCents),
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (recordedWalletIds.contains(w.id))
-                          const Icon(
-                            Icons.check_circle,
-                            color: Colors.green,
-                            size: 18,
-                          )
-                        else
-                          Icon(
-                            Icons.radio_button_unchecked,
-                            color: Colors.grey.shade500,
-                            size: 18,
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.savings_outlined),
-                          iconSize: 20,
-                          color: Colors.green.shade700,
-                          tooltip: 'Daily Saving',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 32,
-                          ),
-                          onPressed: () => _showPaymentModal(
-                            context,
-                            ref,
-                            customer,
-                            w,
-                            'DAILY_PAYMENT',
-                            _selectedDate,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle_outline),
-                          iconSize: 20,
-                          color: Colors.blue.shade700,
-                          tooltip: 'Deposit',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 32,
-                          ),
-                          onPressed: () => _showPaymentModal(
-                            context,
-                            ref,
-                            customer,
-                            w,
-                            'DEPOSIT',
-                            _selectedDate,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
+        if (multiWallet)
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: multiWalletRows(),
+            crossFadeState: isExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 180),
           ),
-          crossFadeState: isExpanded
-              ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
-          duration: const Duration(milliseconds: 180),
-        ),
       ],
+    );
+
+    if (showGroupLineOnCustomer) {
+      return customerBlock;
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerLow.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: customerBlock,
     );
   }
 
@@ -898,67 +969,6 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Daily Check'),
-        actions: [
-          PopupMenuButton<_AlphabetSortOrder>(
-            tooltip: 'Sort customers',
-            initialValue: _sortOrder,
-            onSelected: (value) => setState(() => _sortOrder = value),
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _AlphabetSortOrder.az,
-                child: Text('Sort A-Z'),
-              ),
-              PopupMenuItem(
-                value: _AlphabetSortOrder.za,
-                child: Text('Sort Z-A'),
-              ),
-            ],
-            icon: Icon(
-              _sortOrder == _AlphabetSortOrder.az
-                  ? Icons.sort_by_alpha
-                  : Icons.sort_by_alpha_outlined,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Manage groups',
-            icon: const Icon(Icons.group_work_outlined),
-            onPressed: () async {
-              await Navigator.of(context).push<void>(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CustomerGroupManagementScreen(),
-                ),
-              );
-              if (!mounted) return;
-              await ref
-                  .read(customerListNotifierProvider.notifier)
-                  .refresh(force: true);
-              ref.invalidate(walletsForCustomerListProvider);
-            },
-          ),
-          PopupMenuButton<_DailyCheckViewStyle>(
-            tooltip: 'Change list style',
-            initialValue: _viewStyle,
-            onSelected: (value) => setState(() => _viewStyle = value),
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: _DailyCheckViewStyle.sorted,
-                child: Text('Sorted list'),
-              ),
-              PopupMenuItem(
-                value: _DailyCheckViewStyle.grouped,
-                child: Text('Grouped list'),
-              ),
-            ],
-            icon: Icon(
-              _viewStyle == _DailyCheckViewStyle.grouped
-                  ? Icons.view_stream_outlined
-                  : Icons.view_agenda_outlined,
-            ),
-          ),
-        ],
-      ),
       body: Column(
         children: [
           // Date Selector at the top - Static, doesn't reload heavily
@@ -1243,7 +1253,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                         minHeight: 2,
                                       ),
                                     ),
-                                  ...(_viewStyle == _DailyCheckViewStyle.sorted
+                                  ...(_viewStyle == DailyCheckViewStyle.sorted
                                       ? _buildSortedCustomerChildren(
                                           context,
                                           colorScheme,
@@ -1305,7 +1315,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
       final compare = a.fullName.toLowerCase().compareTo(
         b.fullName.toLowerCase(),
       );
-      return _sortOrder == _AlphabetSortOrder.az ? compare : -compare;
+      return _sortOrder == AlphabetSortOrder.az ? compare : -compare;
     });
     return customers;
   }
@@ -1332,7 +1342,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
         final compare = byTitle[a]!.toLowerCase().compareTo(
           byTitle[b]!.toLowerCase(),
         );
-        return _sortOrder == _AlphabetSortOrder.az ? compare : -compare;
+        return _sortOrder == AlphabetSortOrder.az ? compare : -compare;
       });
 
     return keys
@@ -1369,6 +1379,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
             customer,
             walletsMap[customer.customerId] ?? const <CustomerWallet>[],
             recordedWalletIds,
+            showGroupLineOnCustomer: true,
           ),
         ),
       );
@@ -1434,6 +1445,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                 customer,
                 walletsMap[customer.customerId] ?? const <CustomerWallet>[],
                 recordedWalletIds,
+                showGroupLineOnCustomer: false,
               ),
             ),
           );
@@ -1495,9 +1507,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   }
 }
 
-enum _AlphabetSortOrder { az, za }
+enum AlphabetSortOrder { az, za }
 
-enum _DailyCheckViewStyle { sorted, grouped }
+enum DailyCheckViewStyle { sorted, grouped }
 
 enum _DailyCheckFilter { all, saved, notSaved }
 
@@ -1584,15 +1596,17 @@ class _DailyGroupSectionHeader extends StatelessWidget {
                         label: 'Saved',
                         count: savedWalletCount,
                         icon: Icons.check_circle_outline,
-                        foregroundColor: Colors.green.shade700,
-                        backgroundColor: Colors.green.withValues(alpha: 0.12),
+                        foregroundColor: colorScheme.primary,
+                        backgroundColor:
+                            colorScheme.primary.withValues(alpha: 0.09),
                       ),
                       _DailySectionCountChip(
-                        label: 'Not saved',
+                        label: 'Pending',
                         count: pendingWalletCount,
-                        icon: Icons.pending_actions_outlined,
-                        foregroundColor: Colors.red.shade700,
-                        backgroundColor: Colors.red.withValues(alpha: 0.12),
+                        icon: Icons.schedule_outlined,
+                        foregroundColor: colorScheme.onSurfaceVariant,
+                        backgroundColor: colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.65),
                       ),
                     ],
                   ),

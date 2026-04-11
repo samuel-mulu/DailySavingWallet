@@ -130,6 +130,42 @@ class CustomerWallet {
   }
 }
 
+class WalletStatusCounts {
+  final int all;
+  final int active;
+  final int frozen;
+  final int closed;
+
+  const WalletStatusCounts({
+    required this.all,
+    required this.active,
+    required this.frozen,
+    required this.closed,
+  });
+
+  int countForStatus(String status) {
+    switch (status) {
+      case 'ACTIVE':
+        return active;
+      case 'FROZEN':
+        return frozen;
+      case 'CLOSED':
+        return closed;
+      default:
+        return all;
+    }
+  }
+
+  static WalletStatusCounts fromBackendMap(Map<String, dynamic> json) {
+    return WalletStatusCounts(
+      all: _toInt(json['ALL']),
+      active: _toInt(json['ACTIVE']),
+      frozen: _toInt(json['FROZEN']),
+      closed: _toInt(json['CLOSED']),
+    );
+  }
+}
+
 class WalletStatusHealth {
   final int freezeCount;
   final int closeCount;
@@ -247,11 +283,52 @@ class LedgerPage {
   });
 }
 
+class WithdrawPreview {
+  static const int _feeDivisor = 30;
+  static const int _roundingOffset = _feeDivisor ~/ 2;
+
+  final int amountCents;
+  final int feeCents;
+  final int totalDebitCents;
+
+  const WithdrawPreview({
+    required this.amountCents,
+    required this.feeCents,
+    required this.totalDebitCents,
+  });
+
+  static WithdrawPreview calculate(int amountCents) {
+    final feeCents = (amountCents + _roundingOffset) ~/ _feeDivisor;
+    return WithdrawPreview(
+      amountCents: amountCents,
+      feeCents: feeCents,
+      totalDebitCents: amountCents + feeCents,
+    );
+  }
+
+  static WithdrawPreview fromBackendMap(Map<String, dynamic> json) {
+    final amountCents = _toInt(json['amountCents']);
+    final fallback = calculate(amountCents);
+
+    return WithdrawPreview(
+      amountCents: amountCents,
+      feeCents: json['feeCents'] == null
+          ? fallback.feeCents
+          : _toInt(json['feeCents']),
+      totalDebitCents: json['totalDebitCents'] == null
+          ? fallback.totalDebitCents
+          : _toInt(json['totalDebitCents']),
+    );
+  }
+}
+
 class WithdrawRequest {
   final String id;
   final String customerId;
   final String? walletId;
   final int amountCents;
+  final int feeCents;
+  final int totalDebitCents;
   final int approvalFeeCents;
   final int approvedTotalDebitCents;
   final String reason;
@@ -266,6 +343,8 @@ class WithdrawRequest {
     required this.customerId,
     required this.walletId,
     required this.amountCents,
+    required this.feeCents,
+    required this.totalDebitCents,
     required this.approvalFeeCents,
     required this.approvedTotalDebitCents,
     required this.reason,
@@ -277,13 +356,28 @@ class WithdrawRequest {
   });
 
   static WithdrawRequest fromBackendMap(Map<String, dynamic> json) {
+    final amountCents = _toInt(json['amountCents']);
+    final computedPreview = WithdrawPreview.calculate(amountCents);
+    final approvalFeeCents = _toInt(json['approvalFeeCents']);
+    final approvedTotalDebitCents = _toInt(json['approvedTotalDebitCents']);
+
     return WithdrawRequest(
       id: (json['id'] as String?) ?? '',
       customerId: (json['customerId'] as String?) ?? '',
       walletId: json['walletId'] as String?,
-      amountCents: _toInt(json['amountCents']),
-      approvalFeeCents: _toInt(json['approvalFeeCents']),
-      approvedTotalDebitCents: _toInt(json['approvedTotalDebitCents']),
+      amountCents: amountCents,
+      feeCents: json['feeCents'] == null
+          ? (json['approvalFeeCents'] == null
+                ? computedPreview.feeCents
+                : approvalFeeCents)
+          : _toInt(json['feeCents']),
+      totalDebitCents: json['totalDebitCents'] == null
+          ? (json['approvedTotalDebitCents'] == null
+                ? computedPreview.totalDebitCents
+                : approvedTotalDebitCents)
+          : _toInt(json['totalDebitCents']),
+      approvalFeeCents: approvalFeeCents,
+      approvedTotalDebitCents: approvedTotalDebitCents,
       reason: (json['reason'] as String?) ?? '',
       status: (json['status'] as String?) ?? 'PENDING',
       requestedByUid:
@@ -297,6 +391,12 @@ class WithdrawRequest {
       updatedAt: _parseDateTime(json['updatedAt']),
     );
   }
+
+  WithdrawPreview get preview => WithdrawPreview(
+    amountCents: amountCents,
+    feeCents: feeCents,
+    totalDebitCents: totalDebitCents,
+  );
 }
 
 int _toInt(Object? value) {
