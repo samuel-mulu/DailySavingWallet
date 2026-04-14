@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/money/money.dart';
 import '../../core/ui/date_selector.dart';
@@ -13,10 +12,10 @@ class RecordDailySavingScreen extends StatefulWidget {
 }
 
 class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
+  final _repo = WalletRepo();
   final _customerIdCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
-  final _uuid = const Uuid();
   DateTime _selectedDate = DateTime.now();
 
   bool _busy = false;
@@ -44,12 +43,11 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
       final txDateMillis = dateToTxMillis(_selectedDate);
 
-      await WalletRepo().recordDailySaving(
+      await _repo.recordDailySaving(
         customerId: customerId,
         amountCents: cents,
         txDateMillis: txDateMillis,
         note: note,
-        idempotencyKey: _uuid.v4(),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

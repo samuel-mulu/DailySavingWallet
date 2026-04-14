@@ -68,13 +68,26 @@ class _AdminShellState extends ConsumerState<AdminShell>
   @override
   Widget build(BuildContext context) {
     final txDay = _txDay(_dailyBadgeDate);
-    ref.watch(recordedDailyWalletIdsProvider(txDay));
-    final dailyWalletCounts = ref.watch(dailyWalletCountsProvider(txDay));
+    final recordedWalletIds =
+        ref.watch(recordedDailyWalletIdsProvider(txDay)).data ??
+        const <String>{};
+    final listItems = ref.watch(customerListNotifierProvider).items;
+    final walletsByCustomer = ref.watch(walletsForCustomerListProvider).valueOrNull;
     final pendingItems =
         ref.watch(pendingWithdrawalsStaleProvider).data ?? const [];
 
-    final pendingDailyCount =
-        dailyWalletCounts.valueOrNull?.pendingWalletCount ?? 0;
+    var pendingDailyCount = 0;
+    if (walletsByCustomer != null) {
+      for (final customer in listItems) {
+        final wallets = walletsByCustomer[customer.customerId] ?? const [];
+        for (final wallet in wallets) {
+          if (wallet.status.toUpperCase() != 'ACTIVE') continue;
+          if (!recordedWalletIds.contains(wallet.id)) {
+            pendingDailyCount += 1;
+          }
+        }
+      }
+    }
     final pendingApprovalCount = pendingItems.length;
 
     final Widget body = switch (_index) {

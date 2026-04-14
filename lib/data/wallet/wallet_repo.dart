@@ -1,5 +1,4 @@
-import 'package:uuid/uuid.dart';
-
+import '../../core/idempotency/idempotency_key_manager.dart';
 import '../../core/logging/app_logger.dart';
 import '../api/wallet_api.dart';
 import '../api/withdrawal_api.dart';
@@ -7,14 +6,19 @@ import 'models.dart';
 import 'recorded_daily_days_month.dart';
 
 class WalletRepo {
-  WalletRepo({WalletApi? walletApi, WithdrawalApi? withdrawalApi, Uuid? uuid})
+  WalletRepo({
+    WalletApi? walletApi,
+    WithdrawalApi? withdrawalApi,
+    IdempotencyKeyManager? idempotencyKeyManager,
+  })
     : _walletApi = walletApi ?? WalletApi(),
       _withdrawalApi = withdrawalApi ?? WithdrawalApi(),
-      _uuid = uuid ?? const Uuid();
+      _idempotencyKeyManager =
+          idempotencyKeyManager ?? IdempotencyKeyManager();
 
   final WalletApi _walletApi;
   final WithdrawalApi _withdrawalApi;
-  final Uuid _uuid;
+  final IdempotencyKeyManager _idempotencyKeyManager;
 
   Future<WalletSnapshot?> fetchWallet(String customerId, {String? walletId}) {
     return _walletApi.fetchWallet(customerId, walletId: walletId);
@@ -125,12 +129,20 @@ class WalletRepo {
   Future<void> requestWithdraw({
     required int amountCents,
     required String reason,
+    String? idempotencyKey,
+    String? logicalActionId,
   }) async {
+    final actionId =
+        logicalActionId ?? 'withdraw:self|$amountCents|${reason.trim()}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
     await _withdrawalApi.requestWithdraw(
       amountCents: amountCents,
       reason: reason,
-      idempotencyKey: _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
   }
 
   Future<WalletSnapshot?> recordDailySaving({
@@ -140,16 +152,24 @@ class WalletRepo {
     required int txDateMillis,
     String? note,
     String? idempotencyKey,
+    String? logicalActionId,
   }) async {
+    final actionId = logicalActionId ??
+        'dailySaving|$customerId|${walletId ?? 'PRIMARY'}|$amountCents|$txDateMillis|${note?.trim() ?? ''}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
     final txDate = DateTime.fromMillisecondsSinceEpoch(txDateMillis);
-    return _walletApi.recordDailySaving(
+    final result = await _walletApi.recordDailySaving(
       customerId: customerId,
       walletId: walletId,
       amountCents: amountCents,
       txDate: txDate,
       note: note,
-      idempotencyKey: idempotencyKey ?? _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
+    return result;
   }
 
   Future<WalletSnapshot?> recordDeposit({
@@ -159,8 +179,12 @@ class WalletRepo {
     int? txDateMillis,
     String? note,
     String? idempotencyKey,
+    String? logicalActionId,
   }) async {
-    return _walletApi.recordDeposit(
+    final actionId = logicalActionId ??
+        'deposit|$customerId|${walletId ?? 'PRIMARY'}|$amountCents|${txDateMillis ?? ''}|${note?.trim() ?? ''}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
+    final result = await _walletApi.recordDeposit(
       customerId: customerId,
       walletId: walletId,
       amountCents: amountCents,
@@ -168,8 +192,12 @@ class WalletRepo {
           ? DateTime.fromMillisecondsSinceEpoch(txDateMillis)
           : null,
       note: note,
-      idempotencyKey: idempotencyKey ?? _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
+    return result;
   }
 
   Future<WalletSnapshot?> updateWalletStatus({
@@ -202,34 +230,61 @@ class WalletRepo {
     String? walletId,
     required int amountCents,
     required String reason,
+    String? idempotencyKey,
+    String? logicalActionId,
   }) async {
-    return _withdrawalApi.requestWithdraw(
+    final actionId = logicalActionId ??
+        'withdraw:customer|$customerId|${walletId ?? 'PRIMARY'}|$amountCents|${reason.trim()}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
+    final result = await _withdrawalApi.requestWithdraw(
       customerId: customerId,
       walletId: walletId,
       amountCents: amountCents,
       reason: reason,
-      idempotencyKey: _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
+    return result;
   }
 
   Future<void> approveWithdraw(
     String requestId, {
     String? idempotencyKey,
     int? amountCents,
+    String? logicalActionId,
   }) async {
+    final actionId =
+        logicalActionId ?? 'withdraw:approve|$requestId|${amountCents ?? ''}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
     await _withdrawalApi.approveWithdraw(
       requestId: requestId,
-      idempotencyKey: idempotencyKey ?? _uuid.v4(),
+      idempotencyKey: key,
       amountCents: amountCents,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
   }
 
-  Future<void> rejectWithdraw(String requestId, {String? note}) async {
+  Future<void> rejectWithdraw(
+    String requestId, {
+    String? note,
+    String? idempotencyKey,
+    String? logicalActionId,
+  }) async {
+    final actionId =
+        logicalActionId ?? 'withdraw:reject|$requestId|${note?.trim() ?? ''}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
     await _withdrawalApi.rejectWithdraw(
       requestId: requestId,
       note: note,
-      idempotencyKey: _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
   }
 
   Future<int> fetchTotalSaving() async {

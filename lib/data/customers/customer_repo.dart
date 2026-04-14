@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+import '../../core/idempotency/idempotency_key_manager.dart';
 import '../../core/logging/app_logger.dart';
 import '../api/customer_api.dart';
 import '../api/media_api.dart';
@@ -9,14 +10,21 @@ import 'customer_media.dart';
 import 'customer_model.dart';
 
 class CustomerRepo {
-  CustomerRepo({CustomerApi? customerApi, MediaApi? mediaApi, Uuid? uuid})
-    : _customerApi = customerApi ?? CustomerApi(),
-      _mediaApi = mediaApi ?? MediaApi(),
-      _uuid = uuid ?? const Uuid();
+  CustomerRepo({
+    CustomerApi? customerApi,
+    MediaApi? mediaApi,
+    Uuid? uuid,
+    IdempotencyKeyManager? idempotencyKeyManager,
+  }) : _customerApi = customerApi ?? CustomerApi(),
+       _mediaApi = mediaApi ?? MediaApi(),
+       _uuid = uuid ?? const Uuid(),
+       _idempotencyKeyManager =
+           idempotencyKeyManager ?? IdempotencyKeyManager();
 
   final CustomerApi _customerApi;
   final MediaApi _mediaApi;
   final Uuid _uuid;
+  final IdempotencyKeyManager _idempotencyKeyManager;
 
   Future<CustomerPage> fetchCustomersPage({
     String? search,
@@ -167,9 +175,13 @@ class CustomerRepo {
     );
   }
 
-  Future<CustomerGroupSummary> createCustomerGroup({required String name}) {
+  Future<CustomerGroupSummary> createCustomerGroup({
+    required String name,
+    String? colorHex,
+  }) {
     return _customerApi.createCustomerGroup(
       name: name,
+      colorHex: colorHex,
       idempotencyKey: _uuid.v4(),
     );
   }
@@ -177,8 +189,13 @@ class CustomerRepo {
   Future<CustomerGroupSummary> updateCustomerGroup({
     required String groupId,
     required String name,
+    String? colorHex,
   }) {
-    return _customerApi.updateCustomerGroup(groupId: groupId, name: name);
+    return _customerApi.updateCustomerGroup(
+      groupId: groupId,
+      name: name,
+      colorHex: colorHex,
+    );
   }
 
   Future<void> assignCustomerGroup({
@@ -194,13 +211,27 @@ class CustomerRepo {
   Future<void> saveCustomerMediaAssets({
     required String customerId,
     required Map<CustomerMediaSlot, CustomerMediaAsset> assets,
+    String? idempotencyKey,
+    String? logicalActionId,
   }) async {
     if (assets.isEmpty) return;
+    final mediaFingerprint =
+        assets.entries
+            .map((e) => '${e.key.firestoreField}:${e.value.publicId}')
+            .toList()
+          ..sort();
+    final actionId =
+        logicalActionId ??
+        'mediaSave|$customerId|${mediaFingerprint.join(',')}';
+    final key = idempotencyKey ?? _idempotencyKeyManager.keyFor(actionId);
     await _mediaApi.saveMedia(
       customerId: customerId,
       assets: assets,
-      idempotencyKey: _uuid.v4(),
+      idempotencyKey: key,
     );
+    if (idempotencyKey == null) {
+      _idempotencyKeyManager.clear(actionId);
+    }
   }
 
   Future<List<CustomerWallet>> fetchCustomerWallets(String customerId) {

@@ -1,6 +1,7 @@
 class CustomerGroupSummary {
   final String id;
   final String name;
+  final String colorHex;
   final int customerCount;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -8,6 +9,7 @@ class CustomerGroupSummary {
   const CustomerGroupSummary({
     required this.id,
     required this.name,
+    required this.colorHex,
     required this.customerCount,
     required this.createdAt,
     required this.updatedAt,
@@ -17,6 +19,7 @@ class CustomerGroupSummary {
     return CustomerGroupSummary(
       id: (json['id'] as String?) ?? '',
       name: (json['name'] as String?) ?? '',
+      colorHex: _normalizeColorHex(json['colorHex']),
       customerCount: _toInt(json['customerCount']),
       createdAt: _parseDateTime(json['createdAt']),
       updatedAt: _parseDateTime(json['updatedAt']),
@@ -47,4 +50,10 @@ DateTime? _parseDateTime(Object? value) {
     return DateTime.tryParse(value)?.toLocal();
   }
   return null;
+}
+
+String _normalizeColorHex(Object? value) {
+  final raw = (value as String?)?.trim().toUpperCase() ?? '';
+  if (RegExp(r'^#[0-9A-F]{6}$').hasMatch(raw)) return raw;
+  return '#8B5CF6';
 }

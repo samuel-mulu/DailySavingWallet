@@ -176,12 +176,17 @@ class CustomerApi {
 
   Future<CustomerGroupSummary> createCustomerGroup({
     required String name,
+    String? colorHex,
     required String idempotencyKey,
   }) async {
     final data = await _client.postJson(
       '/customers/groups',
       extraHeaders: {'Idempotency-Key': idempotencyKey},
-      body: {'name': name.trim()},
+      body: {
+        'name': name.trim(),
+        if (colorHex != null && colorHex.trim().isNotEmpty)
+          'colorHex': colorHex.trim().toUpperCase(),
+      },
     );
     return CustomerGroupSummary.fromBackendMap(
       asJsonMap(data['group'], fieldName: 'group'),
@@ -191,10 +196,15 @@ class CustomerApi {
   Future<CustomerGroupSummary> updateCustomerGroup({
     required String groupId,
     required String name,
+    String? colorHex,
   }) async {
     final data = await _client.patchJson(
       '/customers/groups/$groupId',
-      body: {'name': name.trim()},
+      body: {
+        'name': name.trim(),
+        if (colorHex != null && colorHex.trim().isNotEmpty)
+          'colorHex': colorHex.trim().toUpperCase(),
+      },
     );
     return CustomerGroupSummary.fromBackendMap(
       asJsonMap(data['group'], fieldName: 'group'),

@@ -23,6 +23,7 @@ class AdminHomeTab extends ConsumerStatefulWidget {
   final Future<int> Function()? loadCustomerCount;
   final Future<int> Function()? loadTotalSaving;
   final Future<int> Function()? loadTotalCredit;
+
   /// When set (e.g. tests), overrides [WalletRepo.fetchWalletTotals].
   final Future<WalletTotals> Function()? loadWalletTotals;
 
@@ -48,6 +49,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
   late Future<WalletTotals> _walletTotalsFuture;
   late Future<List<Customer>> _customersWithSavingFuture;
   late Future<List<Customer>> _customersWithCreditFuture;
+  late Future<List<Customer>> _customersWithFlatFuture;
 
   Future<WalletTotals> _resolveWalletTotals() async {
     if (widget.loadWalletTotals != null) {
@@ -78,6 +80,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     _walletTotalsFuture = _resolveWalletTotals();
     _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
     _customersWithCreditFuture = _loadCustomersWithCredit();
+    _customersWithFlatFuture = _loadCustomersWithFlatBalance();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.loadCustomerCount == null) {
         ref.read(customerListNotifierProvider.notifier).loadInitial();
@@ -127,6 +130,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                 _walletTotalsFuture = _resolveWalletTotals();
                 _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
                 _customersWithCreditFuture = _loadCustomersWithCredit();
+                _customersWithFlatFuture = _loadCustomersWithFlatBalance();
               });
             },
             child: ListView(
@@ -243,15 +247,17 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                 color: const Color(0xFF10B981),
                                 metricLine: wPos != null
                                     ? '${_walletCountLabel(wPos)} · ${_customerCountLabel(savingCustomers.length)}'
-                                    : _customerCountLabel(savingCustomers.length),
+                                    : _customerCountLabel(
+                                        savingCustomers.length,
+                                      ),
                                 footerText: widget.onNavigateToTab == null
                                     ? null
                                     : 'Tap for detail',
                                 onTap: () => _showCustomersWithSavingModal(
-                                      context,
-                                      headerTotalCents: savingCents,
-                                      walletMetricCount: wPos ?? 0,
-                                    ),
+                                  context,
+                                  headerTotalCents: savingCents,
+                                  walletMetricCount: wPos ?? 0,
+                                ),
                               );
                             },
                           );
@@ -270,8 +276,8 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                               final creditCustomers =
                                   creditCustomersSnap.data ??
                                   const <Customer>[];
-                              final creditCents =
-                                  (wt?.totalCreditCents ?? 0).abs();
+                              final creditCents = (wt?.totalCreditCents ?? 0)
+                                  .abs();
                               final wNeg = wt?.walletsWithNegativeBalanceCount;
                               return _StatCard(
                                 title: 'Total',
@@ -281,15 +287,17 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                 color: const Color(0xFFEF5350),
                                 metricLine: wNeg != null
                                     ? '${_walletCountLabel(wNeg)} · ${_customerCountLabel(creditCustomers.length)}'
-                                    : _customerCountLabel(creditCustomers.length),
+                                    : _customerCountLabel(
+                                        creditCustomers.length,
+                                      ),
                                 footerText: widget.onNavigateToTab == null
                                     ? null
                                     : 'Tap for detail',
                                 onTap: () => _showCustomersWithCreditModal(
-                                      context,
-                                      headerTotalCents: creditCents,
-                                      walletMetricCount: wNeg ?? 0,
-                                    ),
+                                  context,
+                                  headerTotalCents: creditCents,
+                                  walletMetricCount: wNeg ?? 0,
+                                ),
                               );
                             },
                           );
@@ -301,19 +309,83 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                 const SizedBox(height: 12),
                 FutureBuilder<WalletTotals>(
                   future: _walletTotalsFuture,
-                  builder: (context, snap) {
-                    final wt = snap.data;
-                    final saving = wt?.totalSavingCents ?? 0;
-                    final credit = wt?.totalCreditCents ?? 0;
-                    final revenue = saving + credit;
-                    return _StatCard(
-                      title: 'Total',
-                      subtitle: 'Revenue',
-                      value: (revenue / 100).toStringAsFixed(0),
-                      icon: Icons.monetization_on_rounded,
-                      color: const Color(0xFF0EA5E9),
+                  builder: (context, wtSnap) {
+                    final wt = wtSnap.data;
+                    return FutureBuilder<List<Customer>>(
+                      future: _customersWithFlatFuture,
+                      builder: (context, flatCustomersSnap) {
+                        final flatCustomers =
+                            flatCustomersSnap.data ?? const <Customer>[];
+                        final totalWallets = wt?.totalCustomerWalletCount ?? 0;
+                        final positiveWallets =
+                            wt?.walletsWithPositiveBalanceCount ?? 0;
+                        final negativeWallets =
+                            wt?.walletsWithNegativeBalanceCount ?? 0;
+                        final flatWallets =
+                            (totalWallets - positiveWallets - negativeWallets)
+                                .clamp(0, totalWallets);
+
+                        return _StatCard(
+                          title: 'Total',
+                          subtitle: 'Flat',
+                          value: flatCustomers.length.toString(),
+                          icon: Icons.horizontal_rule_rounded,
+                          color: const Color(0xFF6366F1),
+                          metricLine:
+                              '${_walletCountLabel(flatWallets)} · ${_customerCountLabel(flatCustomers.length)}',
+                          footerText: widget.onNavigateToTab == null
+                              ? null
+                              : 'Tap for detail',
+                          onTap: () => _showCustomersWithFlatModal(
+                            context,
+                            walletMetricCount: flatWallets,
+                          ),
+                        );
+                      },
                     );
                   },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FutureBuilder<WalletTotals>(
+                        future: _walletTotalsFuture,
+                        builder: (context, snap) {
+                          final wt = snap.data;
+                          final saving = wt?.totalSavingCents ?? 0;
+                          final credit = wt?.totalCreditCents ?? 0;
+                          final revenue = saving + credit;
+                          return _StatCard(
+                            title: 'Total',
+                            subtitle: 'Revenue',
+                            value: (revenue / 100).toStringAsFixed(0),
+                            icon: Icons.monetization_on_rounded,
+                            color: const Color(0xFF0EA5E9),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FutureBuilder<WalletTotals>(
+                        future: _walletTotalsFuture,
+                        builder: (context, snap) {
+                          final wt = snap.data;
+                          final saving = wt?.totalSavingCents ?? 0;
+                          final creditAbs = (wt?.totalCreditCents ?? 0).abs();
+                          final totalMoney = saving + creditAbs;
+                          return _StatCard(
+                            title: 'Total',
+                            subtitle: 'Money',
+                            value: (totalMoney / 100).toStringAsFixed(0),
+                            icon: Icons.account_balance_wallet_rounded,
+                            color: const Color(0xFF14B8A6),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -430,6 +502,14 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     return _sortCustomers(withCredit);
   }
 
+  Future<List<Customer>> _loadCustomersWithFlatBalance() async {
+    final customers = await _customerRepo!.fetchAllActiveCustomers();
+    final withFlat = customers
+        .where((customer) => customer.balanceCents == 0)
+        .toList(growable: false);
+    return _sortCustomers(withFlat);
+  }
+
   List<Customer> _sortCustomers(List<Customer> customers) {
     final sorted = [...customers];
     sorted.sort(
@@ -476,6 +556,22 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
       valueFor: (customer) => customer.balanceCents.abs(),
       valueColor: const Color(0xFFEF5350),
       headerTotalCents: headerTotalCents,
+      walletMetricCount: walletMetricCount,
+    );
+  }
+
+  Future<void> _showCustomersWithFlatModal(
+    BuildContext context, {
+    required int walletMetricCount,
+  }) async {
+    await _showCustomerBalanceModal(
+      context,
+      title: 'Customers With Flat Balance',
+      future: _customersWithFlatFuture,
+      emptyMessage: 'No customers with flat (0) balance right now.',
+      valueFor: (_) => 0,
+      valueColor: const Color(0xFF6366F1),
+      headerTotalCents: 0,
       walletMetricCount: walletMetricCount,
     );
   }
@@ -570,8 +666,8 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                             'List sum ${MoneyEtb.formatCents(listSumCents)} (customer-level; may differ when a customer has multiple wallets).',
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
                           ),
                         ],
                       ],
@@ -635,6 +731,7 @@ class _StatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+
   /// Optional line under the main [value] (e.g. wallet totals).
   final String? metricLine;
   final String? footerText;

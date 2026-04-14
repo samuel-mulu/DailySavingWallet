@@ -53,23 +53,27 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
     if (walletsAsync.isLoading && !walletsAsync.hasValue) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Loading wallet data… try again in a moment.')),
+        const SnackBar(
+          content: Text('Loading wallet data… try again in a moment.'),
+        ),
       );
       return;
     }
     if (walletsAsync.hasError) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load wallets: ${walletsAsync.error}')),
+        SnackBar(
+          content: Text('Could not load wallets: ${walletsAsync.error}'),
+        ),
       );
       return;
     }
     final map = walletsAsync.value ?? {};
     if (customers.isEmpty) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No customers to export.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No customers to export.')));
       return;
     }
 
@@ -87,9 +91,9 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
       await Printing.sharePdf(bytes: bytes, filename: name);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not build PDF: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not build PDF: $e')));
     }
   }
 
@@ -106,6 +110,8 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
         parts.add('Filter: Debt / Credit');
       case _CustomerBalanceFilter.positiveSaving:
         parts.add('Filter: Positive saving');
+      case _CustomerBalanceFilter.flat:
+        parts.add('Filter: Flat balance');
     }
     return parts.join(' · ');
   }
@@ -137,6 +143,9 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
               .length;
           final positiveSavingCount = sortedCustomers
               .where((c) => c.balanceCents > 0)
+              .length;
+          final flatCount = sortedCustomers
+              .where((c) => c.balanceCents == 0)
               .length;
           final filteredCustomers = _applyBalanceFilter(sortedCustomers);
 
@@ -191,12 +200,13 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                     const SizedBox(width: 12),
                     IconButton(
                       tooltip: 'Export PDF',
-                      onPressed: walletsAsync.isLoading && !walletsAsync.hasValue
+                      onPressed:
+                          walletsAsync.isLoading && !walletsAsync.hasValue
                           ? null
                           : () => _exportCustomerBalancesPdf(
-                                context,
-                                customers: filteredCustomers,
-                              ),
+                              context,
+                              customers: filteredCustomers,
+                            ),
                       icon: const Icon(Icons.picture_as_pdf_outlined),
                     ),
                     const SizedBox(width: 4),
@@ -267,6 +277,16 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                         onTap: () => setState(
                           () => _balanceFilter =
                               _CustomerBalanceFilter.positiveSaving,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilterCountChip(
+                        label: 'Flat',
+                        count: flatCount,
+                        selected: _balanceFilter == _CustomerBalanceFilter.flat,
+                        icon: Icons.horizontal_rule_rounded,
+                        onTap: () => setState(
+                          () => _balanceFilter = _CustomerBalanceFilter.flat,
                         ),
                       ),
                     ],
@@ -362,7 +382,8 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                               child: CustomerCard(
                                 customer: customer,
                                 wallets: wallets,
-                                walletsLoading: walletsAsync.isLoading &&
+                                walletsLoading:
+                                    walletsAsync.isLoading &&
                                     !walletsAsync.hasValue,
                                 walletsFailed: walletsAsync.hasError,
                                 onTap: () {
@@ -419,6 +440,8 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
         return 'No customers currently have a debt or credit balance.';
       case _CustomerBalanceFilter.positiveSaving:
         return 'No customers currently have a positive saving balance.';
+      case _CustomerBalanceFilter.flat:
+        return 'No customers currently have a flat (0) balance.';
     }
   }
 
@@ -445,13 +468,17 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
         return customers
             .where((customer) => customer.balanceCents > 0)
             .toList();
+      case _CustomerBalanceFilter.flat:
+        return customers
+            .where((customer) => customer.balanceCents == 0)
+            .toList();
     }
   }
 }
 
 enum _AlphabetSortOrder { az, za }
 
-enum _CustomerBalanceFilter { all, debt, positiveSaving }
+enum _CustomerBalanceFilter { all, debt, positiveSaving, flat }
 
 class CustomerCard extends StatelessWidget {
   final Customer customer;
@@ -635,9 +662,9 @@ class CustomerCard extends StatelessWidget {
                     child: Text(
                       '${walletsForSubrows.length} wallets',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -651,8 +678,9 @@ class CustomerCard extends StatelessWidget {
                           vertical: 10,
                         ),
                         decoration: BoxDecoration(
-                          color: colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.45),
+                          color: colorScheme.surfaceContainerHighest.withValues(
+                            alpha: 0.45,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: colorScheme.outlineVariant.withValues(
@@ -683,8 +711,9 @@ class CustomerCard extends StatelessWidget {
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: colorScheme.primary
-                                          .withValues(alpha: 0.12),
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.12,
+                                      ),
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
@@ -703,9 +732,7 @@ class CustomerCard extends StatelessWidget {
                               'Balance ${MoneyEtb.formatCents(w.balanceCents)} · '
                               'Daily ${MoneyEtb.formatCents(w.dailyTargetCents)} · '
                               'Limit ${MoneyEtb.formatCents(w.creditLimitCents)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
                                   ),
@@ -731,8 +758,7 @@ int _sumWalletBalances(List<CustomerWallet> list) =>
 int _sumWalletField(
   List<CustomerWallet> list,
   int Function(CustomerWallet w) pick,
-) =>
-    list.fold(0, (a, w) => a + pick(w));
+) => list.fold(0, (a, w) => a + pick(w));
 
 class _BalanceStatusChip extends StatelessWidget {
   const _BalanceStatusChip({required this.label, required this.color});

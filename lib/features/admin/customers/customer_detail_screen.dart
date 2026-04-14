@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/money/money.dart';
 import '../../../core/settings/calendar_mode.dart';
@@ -18,6 +17,32 @@ import 'widgets/customer_profile_avatar.dart';
 import 'widgets/customer_media_form_section.dart';
 import 'widgets/customer_media_gallery_card.dart';
 
+String _walletOperationalLabel(String status) {
+  switch (status.toUpperCase()) {
+    case 'ACTIVE':
+      return 'Active';
+    case 'FROZEN':
+      return 'Frozen';
+    case 'CLOSED':
+      return 'Closed';
+    case 'UNKNOWN':
+      return 'Unknown';
+    default:
+      return status;
+  }
+}
+
+bool _walletAllowsMoneyMovement(String walletStatus) {
+  return walletStatus.toUpperCase() == 'ACTIVE';
+}
+
+void _showMoneyActionBlockedSnack(BuildContext context, CustomerWallet wallet) {
+  final msg = _walletAllowsMoneyMovement(wallet.status)
+      ? 'This action is not available.'
+      : 'Wallet is ${_walletOperationalLabel(wallet.status)}. Resolve wallet status before recording money.';
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+}
+
 class CustomerDetailScreen extends ConsumerStatefulWidget {
   final String customerId;
 
@@ -29,7 +54,6 @@ class CustomerDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
-  final _uuid = const Uuid();
   final _imagePickerService = CustomerImagePickerService();
   final _cloudinaryMediaService = CloudinaryCustomerMediaService();
   CalendarModeService? _calendarService;
@@ -61,6 +85,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   }
 
   Future<void> _loadWallets() async {
+    if (mounted) {
+      setState(() => _walletsLoading = true);
+    }
     try {
       final list = await ref
           .read(customerRepoProvider)
@@ -95,7 +122,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
 
   void _reloadLedger() {
     setState(() {
-      _ledgerFuture = ref.read(walletRepoProvider).fetchRecentLedger(
+      _ledgerFuture = ref
+          .read(walletRepoProvider)
+          .fetchRecentLedger(
             widget.customerId,
             limit: 10,
             walletId: _selectedWalletId,
@@ -108,7 +137,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
       _customerFuture = ref
           .read(customerRepoProvider)
           .getCustomer(widget.customerId);
-      _ledgerFuture = ref.read(walletRepoProvider).fetchRecentLedger(
+      _ledgerFuture = ref
+          .read(walletRepoProvider)
+          .fetchRecentLedger(
             widget.customerId,
             limit: 10,
             walletId: _selectedWalletId,
@@ -116,9 +147,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     });
     await ref
         .read(
-          walletStaleProvider(
-            (customerId: widget.customerId, walletId: _selectedWalletId),
-          ).notifier,
+          walletStaleProvider((
+            customerId: widget.customerId,
+            walletId: _selectedWalletId,
+          )).notifier,
         )
         .refresh(force: true);
     await _loadWallets();
@@ -251,6 +283,14 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                       customer.creditLimitCents,
                                     ),
                             ),
+                            const SizedBox(height: 8),
+                            _InfoRow(
+                              icon: Icons.verified_user_outlined,
+                              label: 'Account status',
+                              valueChild: _AccountStatusPill(
+                                status: customer.status,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -297,7 +337,8 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               children: [
                                 if (_wallets.length > 1) ...[
                                   DropdownButtonFormField<String>(
-                                    value: _selectedWalletId != null &&
+                                    initialValue:
+                                        _selectedWalletId != null &&
                                             _wallets.any(
                                               (w) => w.id == _selectedWalletId,
                                             )
@@ -327,28 +368,39 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                       if (v == null) return;
                                       setState(() => _selectedWalletId = v);
                                       ref
-                                          .read(walletStaleProvider((
-                                            customerId: widget.customerId,
-                                            walletId: v,
-                                          )).notifier)
+                                          .read(
+                                            walletStaleProvider((
+                                              customerId: widget.customerId,
+                                              walletId: v,
+                                            )).notifier,
+                                          )
                                           .refresh(force: true);
                                       _reloadLedger();
                                     },
                                   ),
                                   const SizedBox(height: 12),
                                 ],
-                                Text(
-                                  'Wallet Balance',
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(
-                                        color: isNegative
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.onErrorContainer
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onPrimaryContainer,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Wallet Balance',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleSmall
+                                            ?.copyWith(
+                                              color: isNegative
+                                                  ? Theme.of(context)
+                                                        .colorScheme
+                                                        .onErrorContainer
+                                                  : Theme.of(context)
+                                                        .colorScheme
+                                                        .onPrimaryContainer,
+                                            ),
                                       ),
+                                    ),
+                                    _WalletStatusPill(status: wallet.status),
+                                  ],
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
@@ -387,12 +439,30 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                     ),
                     const SizedBox(height: 16),
                     if (_selectedWalletId != null)
-                      FutureBuilder<({WalletStatusHealth health, List<WalletStatusEvent> events})>(
-                        future: ref.read(walletRepoProvider).fetchWalletStatusHistory(
+                      FutureBuilder<
+                        ({
+                          WalletStatusHealth health,
+                          List<WalletStatusEvent> events,
+                        })
+                      >(
+                        future: ref
+                            .read(walletRepoProvider)
+                            .fetchWalletStatusHistory(
                               customerId: widget.customerId,
                               walletId: _selectedWalletId!,
                             ),
                         builder: (context, snap) {
+                          if (snap.hasError) {
+                            return Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Text(
+                                  'Could not load wallet health: ${snap.error}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            );
+                          }
                           if (!snap.hasData) {
                             return const Card(
                               child: Padding(
@@ -410,35 +480,53 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 children: [
                                   Text(
                                     'Wallet Health',
-                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
                                   const SizedBox(height: 8),
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: [
-                                      _HealthBadge(label: 'Freeze', count: data.health.freezeCount),
-                                      _HealthBadge(label: 'Close', count: data.health.closeCount),
-                                      _HealthBadge(label: 'Reactivate', count: data.health.reactivateCount),
+                                      _HealthBadge(
+                                        label: 'Freeze',
+                                        count: data.health.freezeCount,
+                                      ),
+                                      _HealthBadge(
+                                        label: 'Close',
+                                        count: data.health.closeCount,
+                                      ),
+                                      _HealthBadge(
+                                        label: 'Reactivate',
+                                        count: data.health.reactivateCount,
+                                      ),
                                     ],
                                   ),
                                   if (data.health.latestReason != null) ...[
                                     const SizedBox(height: 8),
-                                    Text('Latest reason: ${data.health.latestReason}'),
+                                    Text(
+                                      'Latest reason: ${data.health.latestReason}',
+                                    ),
                                   ],
                                   if (data.events.isNotEmpty) ...[
                                     const Divider(height: 20),
-                                    ...data.events.take(5).map(
-                                      (e) => Padding(
-                                        padding: const EdgeInsets.only(bottom: 6),
-                                        child: Text(
-                                          '${e.fromStatus} -> ${e.toStatus} • ${e.reason}',
-                                          style: Theme.of(context).textTheme.bodySmall,
+                                    ...data.events
+                                        .take(5)
+                                        .map(
+                                          (e) => Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 6,
+                                            ),
+                                            child: Text(
+                                              '${e.fromStatus} -> ${e.toStatus} • ${e.reason}',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodySmall,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ),
                                   ],
                                 ],
                               ),
@@ -460,17 +548,24 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       children: [
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: _selectedWalletId == null ||
-                                    _wallets.isEmpty
+                            onPressed:
+                                _selectedWalletId == null || _wallets.isEmpty
                                 ? null
-                                : () => _showRecordPayment(
+                                : () {
+                                    final w = _wallets.firstWhere(
+                                      (x) => x.id == _selectedWalletId,
+                                    );
+                                    if (!_walletAllowsMoneyMovement(w.status)) {
+                                      _showMoneyActionBlockedSnack(context, w);
+                                      return;
+                                    }
+                                    _showRecordPayment(
                                       context,
                                       customer,
-                                      _wallets.firstWhere(
-                                        (w) => w.id == _selectedWalletId,
-                                      ),
+                                      w,
                                       'DAILY_PAYMENT',
-                                    ),
+                                    );
+                                  },
                             icon: const Icon(Icons.savings),
                             label: const Text('Daily Saving'),
                             style: FilledButton.styleFrom(
@@ -481,17 +576,24 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: _selectedWalletId == null ||
-                                    _wallets.isEmpty
+                            onPressed:
+                                _selectedWalletId == null || _wallets.isEmpty
                                 ? null
-                                : () => _showRecordPayment(
+                                : () {
+                                    final w = _wallets.firstWhere(
+                                      (x) => x.id == _selectedWalletId,
+                                    );
+                                    if (!_walletAllowsMoneyMovement(w.status)) {
+                                      _showMoneyActionBlockedSnack(context, w);
+                                      return;
+                                    }
+                                    _showRecordPayment(
                                       context,
                                       customer,
-                                      _wallets.firstWhere(
-                                        (w) => w.id == _selectedWalletId,
-                                      ),
+                                      w,
                                       'DEPOSIT',
-                                    ),
+                                    );
+                                  },
                             icon: const Icon(Icons.add_circle),
                             label: const Text('Deposit'),
                             style: FilledButton.styleFrom(
@@ -507,13 +609,16 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _selectedWalletId == null || _wallets.isEmpty
                             ? null
-                            : () => _showRequestWithdraw(
-                                  context,
-                                  customer,
-                                  _wallets.firstWhere(
-                                    (w) => w.id == _selectedWalletId,
-                                  ),
-                                ),
+                            : () {
+                                final w = _wallets.firstWhere(
+                                  (x) => x.id == _selectedWalletId,
+                                );
+                                if (!_walletAllowsMoneyMovement(w.status)) {
+                                  _showMoneyActionBlockedSnack(context, w);
+                                  return;
+                                }
+                                _showRequestWithdraw(context, customer, w);
+                              },
                         icon: const Icon(Icons.remove_circle_outline),
                         label: const Text('Request Withdraw'),
                       ),
@@ -999,8 +1104,8 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       Text(
                         'Add wallet',
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -1009,9 +1114,8 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                           labelText: 'Display name',
                           border: OutlineInputBorder(),
                         ),
-                        validator: (v) => v == null || v.trim().isEmpty
-                            ? 'Required'
-                            : null,
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
@@ -1092,10 +1196,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 } catch (e) {
                                   setSheetState(() => busy = false);
                                   if (!sheetContext.mounted) return;
-                                  ScaffoldMessenger.of(sheetContext)
-                                      .showSnackBar(
-                                    SnackBar(content: Text('$e')),
-                                  );
+                                  ScaffoldMessenger.of(
+                                    sheetContext,
+                                  ).showSnackBar(SnackBar(content: Text('$e')));
                                 }
                               },
                         child: busy
@@ -1125,6 +1228,11 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     CustomerWallet wallet,
     String type,
   ) {
+    if (!_walletAllowsMoneyMovement(wallet.status)) {
+      _showMoneyActionBlockedSnack(context, wallet);
+      return;
+    }
+
     if (type == 'DAILY_PAYMENT') {
       showAdminBulkDailySavingSheet(
         context: context,
@@ -1135,9 +1243,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
           if (updated != null) {
             ref
                 .read(
-                  walletStaleProvider(
-                    (customerId: customer.customerId, walletId: wallet.id),
-                  ).notifier,
+                  walletStaleProvider((
+                    customerId: customer.customerId,
+                    walletId: wallet.id,
+                  )).notifier,
                 )
                 .applyWallet(updated);
           }
@@ -1150,8 +1259,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
 
     final amountCtrl = TextEditingController(
       text: type == 'DAILY_PAYMENT'
-          ? MoneyEtb.formatCents(wallet.dailyTargetCents)
-              .replaceFirst('ETB ', '')
+          ? MoneyEtb.formatCents(
+              wallet.dailyTargetCents,
+            ).replaceFirst('ETB ', '')
           : '',
     );
     final noteCtrl = TextEditingController();
@@ -1231,7 +1341,6 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 amountCents: cents,
                                 txDateMillis: txDateMillis,
                                 note: note,
-                                idempotencyKey: _uuid.v4(),
                               );
                         } else {
                           updated = await ref
@@ -1242,7 +1351,6 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 amountCents: cents,
                                 txDateMillis: txDateMillis,
                                 note: note,
-                                idempotencyKey: _uuid.v4(),
                               );
                         }
 
@@ -1252,12 +1360,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                         if (updated != null) {
                           ref
                               .read(
-                                walletStaleProvider(
-                                  (
-                                    customerId: customer.customerId,
-                                    walletId: wallet.id,
-                                  ),
-                                ).notifier,
+                                walletStaleProvider((
+                                  customerId: customer.customerId,
+                                  walletId: wallet.id,
+                                )).notifier,
                               )
                               .applyWallet(updated);
                         }
@@ -1294,6 +1400,11 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     Customer customer,
     CustomerWallet wallet,
   ) {
+    if (!_walletAllowsMoneyMovement(wallet.status)) {
+      _showMoneyActionBlockedSnack(context, wallet);
+      return;
+    }
+
     final amountCtrl = TextEditingController();
     final reasonCtrl = TextEditingController();
     var busy = false;
@@ -1389,17 +1500,23 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;
-  final String value;
+  final String? value;
+  final Widget? valueChild;
 
   const _InfoRow({
     required this.icon,
     required this.label,
-    required this.value,
-  });
+    this.value,
+    this.valueChild,
+  }) : assert(
+         value != null || valueChild != null,
+         'Provide value or valueChild',
+       );
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
         const SizedBox(width: 12),
@@ -1413,16 +1530,103 @@ class _InfoRow extends StatelessWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              Text(
-                value,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-              ),
+              if (valueChild != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: valueChild!,
+                )
+              else
+                Text(
+                  value!,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                ),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AccountStatusPill extends StatelessWidget {
+  const _AccountStatusPill({required this.status});
+
+  final String status;
+
+  Color _color(ColorScheme cs) {
+    switch (status) {
+      case CustomerLifecycleStatus.active:
+        return Colors.green.shade700;
+      case CustomerLifecycleStatus.onHold:
+        return Colors.amber.shade900;
+      case CustomerLifecycleStatus.frozen:
+        return Colors.orange.shade900;
+      case CustomerLifecycleStatus.deactive:
+        return cs.error;
+      default:
+        return cs.outline;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fg = _color(cs);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.35)),
+        color: fg.withValues(alpha: 0.08),
+      ),
+      child: Text(
+        CustomerLifecycleStatus.displayLabel(status),
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletStatusPill extends StatelessWidget {
+  const _WalletStatusPill({required this.status});
+
+  final String status;
+
+  Color _color() {
+    switch (status.toUpperCase()) {
+      case 'ACTIVE':
+        return Colors.green.shade700;
+      case 'FROZEN':
+        return Colors.orange.shade900;
+      case 'CLOSED':
+        return Colors.red.shade800;
+      default:
+        return Colors.blueGrey.shade700;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = _color();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.35)),
+        color: fg.withValues(alpha: 0.1),
+      ),
+      child: Text(
+        _walletOperationalLabel(status),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: fg,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

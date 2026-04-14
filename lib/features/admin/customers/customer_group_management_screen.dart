@@ -18,6 +18,16 @@ class CustomerGroupManagementScreen extends StatefulWidget {
 class _CustomerGroupManagementScreenState
     extends State<CustomerGroupManagementScreen> {
   static const String _unassignedGroupKey = '__unassigned__';
+  static const List<String> _groupColorPalette = <String>[
+    '#8B5CF6',
+    '#0EA5E9',
+    '#10B981',
+    '#F59E0B',
+    '#EF4444',
+    '#EC4899',
+    '#6366F1',
+    '#14B8A6',
+  ];
   final CustomerRepo _repo = CustomerRepo();
 
   bool _loading = true;
@@ -110,14 +120,18 @@ class _CustomerGroupManagementScreenState
   }
 
   Future<void> _createGroup() async {
-    final name = await _showGroupNameDialog(
+    final input = await _showGroupNameDialog(
       title: 'Create group',
       actionLabel: 'Create',
+      initialColorHex: _groupColorPalette.first,
     );
-    if (name == null) return;
+    if (input == null) return;
 
     await _runAction(() async {
-      final group = await _repo.createCustomerGroup(name: name);
+      final group = await _repo.createCustomerGroup(
+        name: input.name,
+        colorHex: input.colorHex,
+      );
       await _loadData(showLoader: false);
       if (!mounted) return;
       _showSnack('${group.name} created.');
@@ -125,17 +139,19 @@ class _CustomerGroupManagementScreenState
   }
 
   Future<void> _renameGroup(CustomerGroupSummary group) async {
-    final name = await _showGroupNameDialog(
+    final input = await _showGroupNameDialog(
       title: 'Rename group',
       actionLabel: 'Save',
       initialValue: group.name,
+      initialColorHex: group.colorHex,
     );
-    if (name == null) return;
+    if (input == null) return;
 
     await _runAction(() async {
       final updated = await _repo.updateCustomerGroup(
         groupId: group.id,
-        name: name,
+        name: input.name,
+        colorHex: input.colorHex,
       );
       await _loadData(showLoader: false);
       if (!mounted) return;
@@ -177,17 +193,20 @@ class _CustomerGroupManagementScreenState
     }
   }
 
-  Future<String?> _showGroupNameDialog({
+  Future<_GroupDialogResult?> _showGroupNameDialog({
     required String title,
     required String actionLabel,
     String initialValue = '',
+    required String initialColorHex,
   }) async {
-    return showDialog<String>(
+    return showDialog<_GroupDialogResult>(
       context: context,
       builder: (dialogContext) => _GroupNameDialog(
         title: title,
         actionLabel: actionLabel,
         initialValue: initialValue,
+        initialColorHex: initialColorHex,
+        colorPalette: _groupColorPalette,
       ),
     );
   }
@@ -604,6 +623,9 @@ class _GroupCard extends StatelessWidget {
         descriptionOverride ?? 'Assign or transfer customers into this group.';
     final count = countOverride ?? customers.length;
     final icon = iconOverride ?? Icons.group_work_outlined;
+    final accentColor = group == null
+        ? colorScheme.primary
+        : _colorFromHex(group!.colorHex);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -625,10 +647,10 @@ class _GroupCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: colorScheme.primary.withValues(alpha: 0.08),
+                      color: accentColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(icon, color: colorScheme.primary),
+                    child: Icon(icon, color: accentColor),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -655,13 +677,13 @@ class _GroupCard extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: colorScheme.primary.withValues(alpha: 0.1),
+                      color: accentColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       '$count',
                       style: TextStyle(
-                        color: colorScheme.primary,
+                        color: accentColor,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -843,11 +865,15 @@ class _GroupNameDialog extends StatefulWidget {
     required this.title,
     required this.actionLabel,
     required this.initialValue,
+    required this.initialColorHex,
+    required this.colorPalette,
   });
 
   final String title;
   final String actionLabel;
   final String initialValue;
+  final String initialColorHex;
+  final List<String> colorPalette;
 
   @override
   State<_GroupNameDialog> createState() => _GroupNameDialogState();
@@ -856,11 +882,13 @@ class _GroupNameDialog extends StatefulWidget {
 class _GroupNameDialogState extends State<_GroupNameDialog> {
   late final TextEditingController _controller;
   final _formKey = GlobalKey<FormState>();
+  late String _selectedColorHex;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    _selectedColorHex = widget.initialColorHex;
   }
 
   @override
@@ -873,34 +901,83 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
     }
-    Navigator.of(context).pop(_controller.text.trim());
+    Navigator.of(context).pop(
+      _GroupDialogResult(
+        name: _controller.text.trim(),
+        colorHex: _selectedColorHex,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.title),
-      content: Form(
-        key: _formKey,
-        child: TextFormField(
-          controller: _controller,
-          decoration: const InputDecoration(
-            labelText: 'Group name',
-            hintText: 'Example: Route A',
-          ),
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          validator: (value) {
-            final trimmed = value?.trim() ?? '';
-            if (trimmed.isEmpty) {
-              return 'Group name is required.';
-            }
-            if (trimmed.length > 120) {
-              return 'Use 120 characters or fewer.';
-            }
-            return null;
-          },
-          onFieldSubmitted: (_) => _submit(),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Form(
+              key: _formKey,
+              child: TextFormField(
+                controller: _controller,
+                decoration: const InputDecoration(
+                  labelText: 'Group name',
+                  hintText: 'Example: Route A',
+                ),
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                validator: (value) {
+                  final trimmed = value?.trim() ?? '';
+                  if (trimmed.isEmpty) {
+                    return 'Group name is required.';
+                  }
+                  if (trimmed.length > 120) {
+                    return 'Use 120 characters or fewer.';
+                  }
+                  return null;
+                },
+                onFieldSubmitted: (_) => _submit(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text('Group color', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final colorHex in widget.colorPalette)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () => setState(() => _selectedColorHex = colorHex),
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: _colorFromHex(colorHex),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _selectedColorHex == colorHex
+                              ? Colors.black87
+                              : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: _selectedColorHex == colorHex
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
       actions: [
@@ -912,4 +989,18 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
       ],
     );
   }
+}
+
+class _GroupDialogResult {
+  const _GroupDialogResult({required this.name, required this.colorHex});
+
+  final String name;
+  final String colorHex;
+}
+
+Color _colorFromHex(String colorHex) {
+  final clean = colorHex.trim().replaceFirst('#', '');
+  final value = int.tryParse(clean, radix: 16);
+  if (value == null) return const Color(0xFF8B5CF6);
+  return Color(0xFF000000 | value);
 }

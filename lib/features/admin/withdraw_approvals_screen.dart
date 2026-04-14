@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/data/stale_fetch_state.dart';
 import '../../core/money/money.dart';
@@ -33,7 +32,6 @@ class _WithdrawApprovalsScreenState
   final _repo = WalletRepo();
   final _customerRepo = CustomerRepo();
   final _busyIds = <String>{};
-  final _uuid = const Uuid();
   final _customerFutures = <String, Future<Customer?>>{};
   final _walletFutures = <String, Future<WalletSnapshot?>>{};
 
@@ -194,7 +192,6 @@ class _WithdrawApprovalsScreenState
     try {
       await _repo.approveWithdraw(
         request.id,
-        idempotencyKey: _uuid.v4(),
         amountCents: approvedAmountCents,
       );
       ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);

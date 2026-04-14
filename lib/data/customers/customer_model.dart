@@ -37,7 +37,15 @@ abstract final class CustomerLifecycleStatus {
       case deactive:
         return 'Inactive';
       default:
-        return canonical;
+        if (canonical.isEmpty) return 'Unknown';
+        return canonical
+            .split('_')
+            .map(
+              (w) => w.isEmpty
+                  ? w
+                  : '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}',
+            )
+            .join(' ');
     }
   }
 }
@@ -162,7 +170,12 @@ String _normalizeStatus(Object? value) {
       if (raw.toLowerCase() == 'inactive') {
         return CustomerLifecycleStatus.deactive;
       }
-      return CustomerLifecycleStatus.active;
+      final snake = raw.toLowerCase().replaceAll('-', '_');
+      if (CustomerLifecycleStatus.all.contains(snake)) {
+        return snake;
+      }
+      // Do not coerce unknown server values to Active (misleading in admin UI).
+      return snake;
   }
 }
 

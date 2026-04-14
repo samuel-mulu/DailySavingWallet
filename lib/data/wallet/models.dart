@@ -35,7 +35,7 @@ class WalletSnapshot {
       balanceCents: _toInt(json['balanceCents']),
       dailyTargetCents: _toInt(json['dailyTargetCents']),
       creditLimitCents: _toInt(json['creditLimitCents']),
-      status: (json['status'] as String?) ?? 'ACTIVE',
+      status: parseWalletOperationalStatus(json),
       type: (json['type'] as String?) ?? 'PRIMARY',
       displayName: (json['displayName'] as String?) ?? '',
       code: json['code'] as String?,
@@ -94,7 +94,7 @@ class CustomerWallet {
       type: (json['type'] as String?) ?? 'PRIMARY',
       displayName: (json['displayName'] as String?) ?? '',
       code: json['code'] as String?,
-      status: (json['status'] as String?) ?? 'ACTIVE',
+      status: parseWalletOperationalStatus(json),
       balanceCents: _toInt(json['balanceCents']),
       dailyTargetCents: _toInt(json['dailyTargetCents']),
       creditLimitCents: _toInt(json['creditLimitCents']),
@@ -145,6 +145,8 @@ class WalletStatusCounts {
 
   int countForStatus(String status) {
     switch (status) {
+      case 'ALL':
+        return all;
       case 'ACTIVE':
         return active;
       case 'FROZEN':
@@ -152,7 +154,7 @@ class WalletStatusCounts {
       case 'CLOSED':
         return closed;
       default:
-        return all;
+        return 0;
     }
   }
 
@@ -397,6 +399,27 @@ class WithdrawRequest {
     feeCents: feeCents,
     totalDebitCents: totalDebitCents,
   );
+}
+
+/// Wallet operational status from API payloads (`ACTIVE` / `FROZEN` / `CLOSED`).
+///
+/// Does not default missing values to Active (that hid real FROZEN/CLOSED in UI).
+String parseWalletOperationalStatus(Map<String, dynamic> json) {
+  final raw = json['status'] ?? json['walletStatus'];
+  if (raw == null) return 'UNKNOWN';
+  final s = raw.toString().trim();
+  if (s.isEmpty) return 'UNKNOWN';
+  final u = s.toUpperCase().replaceAll('-', '_');
+  switch (u) {
+    case 'ACTIVE':
+      return 'ACTIVE';
+    case 'FROZEN':
+      return 'FROZEN';
+    case 'CLOSED':
+      return 'CLOSED';
+    default:
+      return u;
+  }
 }
 
 int _toInt(Object? value) {

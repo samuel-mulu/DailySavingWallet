@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:ethiopian_datetime/ethiopian_datetime.dart';
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/dates/date_formatters.dart';
 import '../../../core/settings/calendar_mode.dart';
@@ -72,7 +71,6 @@ class _AdminBulkDailySavingSheet extends StatefulWidget {
 
 class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> {
   final WalletRepo _repo = WalletRepo();
-  final Uuid _uuid = const Uuid();
   final TextEditingController _noteCtrl = TextEditingController();
   final Set<String> _selectedIsoDays = <String>{};
   final Map<String, Set<String>> _recordedByMonth = <String, Set<String>>{};
@@ -208,7 +206,6 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
           amountCents: widget.wallet.dailyTargetCents,
           txDateMillis: dateToTxMillis(DateTime.parse('${iso}T12:00:00.000Z').toLocal()),
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-          idempotencyKey: _uuid.v4(),
         );
         lastSuccessful = snap ?? lastSuccessful;
         _totalAddedCents += widget.wallet.dailyTargetCents;

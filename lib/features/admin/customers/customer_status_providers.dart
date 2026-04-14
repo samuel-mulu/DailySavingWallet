@@ -25,7 +25,8 @@ final customerStatusCountsProvider =
 
 final customerStatusWalletsProvider =
     FutureProvider.autoDispose<Map<String, List<CustomerWallet>>>((ref) async {
-      final customers = ref.watch(customerStatusListNotifierProvider).items;
+      final listState = ref.watch(customerStatusListNotifierProvider);
+      final customers = listState.items;
       final repo = ref.read(customerRepoProvider);
       final entries = await Future.wait(
         customers.map((c) async {

@@ -45,6 +45,8 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
         return Icons.ac_unit;
       case WalletStatusFilter.closed:
         return Icons.lock_outline;
+      case WalletStatusFilter.unknown:
+        return Icons.help_outline;
       default:
         return Icons.tune;
     }
@@ -60,6 +62,8 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
         return 'Frozen';
       case WalletStatusFilter.closed:
         return 'Closed';
+      case WalletStatusFilter.unknown:
+        return 'Unknown';
       default:
         return status;
     }
@@ -132,16 +136,11 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                       label: _labelForWalletStatus(
                         WalletStatusFilter.allValues[i],
                       ),
-                      count:
-                          countsAsync.valueOrNull?.countForStatus(
-                            WalletStatusFilter.allValues[i],
-                          ) ??
-                          (walletsMapAsync.valueOrNull == null
-                              ? 0
-                              : _countWalletsByStatus(
-                                  walletsMapAsync.valueOrNull!,
-                                  WalletStatusFilter.allValues[i],
-                                )),
+                      count: _chipCountForStatus(
+                        WalletStatusFilter.allValues[i],
+                        countsAsync.valueOrNull,
+                        walletsMapAsync.valueOrNull,
+                      ),
                       selected:
                           listState.walletStatusFilter ==
                           WalletStatusFilter.allValues[i],
@@ -162,7 +161,10 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Counts and filters work per wallet. Closed wallets can be reopened back to Active.',
+              'Chips pick customers who have at least one wallet in that state. '
+              'Each row shows that wallet’s real status from the server. '
+              'Unknown means a wallet has missing/invalid status in payload data. '
+              'Use All to see every wallet; pull to refresh after status changes.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -352,6 +354,22 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                                               context,
                                             ).textTheme.bodySmall,
                                           ),
+                                          if (c.status !=
+                                              CustomerLifecycleStatus.active) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Account: ${CustomerLifecycleStatus.displayLabel(c.status)}',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .labelSmall
+                                                  ?.copyWith(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .error,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     ),
@@ -376,7 +394,8 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                                   (w) =>
                                       listState.walletStatusFilter ==
                                           WalletStatusFilter.all ||
-                                      w.status == listState.walletStatusFilter,
+                                      w.status.toUpperCase() ==
+                                          listState.walletStatusFilter,
                                 ))
                                   _WalletRow(
                                     customer: c,
@@ -405,7 +424,19 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
   ) {
     final wallets = walletsMap.values.expand((e) => e);
     if (filter == WalletStatusFilter.all) return wallets.length;
-    return wallets.where((w) => w.status == filter).length;
+    return wallets.where((w) => w.status.toUpperCase() == filter).length;
+  }
+
+  int _chipCountForStatus(
+    String filter,
+    WalletStatusCounts? counts,
+    Map<String, List<CustomerWallet>>? walletsMap,
+  ) {
+    if (filter == WalletStatusFilter.unknown) {
+      return walletsMap == null ? 0 : _countWalletsByStatus(walletsMap, filter);
+    }
+    return counts?.countForStatus(filter) ??
+        (walletsMap == null ? 0 : _countWalletsByStatus(walletsMap, filter));
   }
 
   List<Customer> _filterCustomersByWalletStatus(
@@ -416,7 +447,7 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
     if (filter == WalletStatusFilter.all) return customers;
     return customers.where((c) {
       final ws = walletsMap[c.customerId] ?? const <CustomerWallet>[];
-      return ws.any((w) => w.status == filter);
+      return ws.any((w) => w.status.toUpperCase() == filter);
     }).toList();
   }
 }
@@ -437,10 +468,13 @@ class _WalletRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    final labelColor = switch (wallet.status) {
+    final st = wallet.status.toUpperCase();
+    final labelColor = switch (st) {
       WalletStatusFilter.active => Colors.green,
       WalletStatusFilter.frozen => Colors.orange,
-      _ => Colors.redAccent,
+      WalletStatusFilter.closed => Colors.redAccent,
+      'UNKNOWN' => Colors.blueGrey,
+      _ => Colors.blueGrey,
     };
 
     Future<void> submit(String targetStatus) async {
@@ -478,13 +512,26 @@ class _WalletRow extends ConsumerWidget {
               color: labelColor,
             ),
             const SizedBox(width: 8),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_horiz),
-              onSelected: submit,
-              itemBuilder: (_) => _actionsForStatus(wallet.status)
-                  .map((e) => PopupMenuItem(value: e.$1, child: Text(e.$2)))
-                  .toList(),
-            ),
+            () {
+              final actions = _actionsForStatus(wallet.status);
+              if (actions.isEmpty) {
+                return Tooltip(
+                  message: 'No status actions for this row',
+                  child: Icon(
+                    Icons.info_outline,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                );
+              }
+              return PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz),
+                onSelected: submit,
+                itemBuilder: (_) => actions
+                    .map((e) => PopupMenuItem(value: e.$1, child: Text(e.$2)))
+                    .toList(),
+              );
+            }(),
           ],
         ),
       ),
@@ -522,13 +569,17 @@ class _WalletRow extends ConsumerWidget {
   }
 
   List<(String, String)> _actionsForStatus(String status) {
-    switch (status) {
+    switch (status.toUpperCase()) {
       case WalletStatusFilter.active:
         return [('FROZEN', 'Freeze'), ('CLOSED', 'Close')];
       case WalletStatusFilter.frozen:
         return [('ACTIVE', 'Activate'), ('CLOSED', 'Close')];
-      default:
+      case WalletStatusFilter.closed:
         return [('ACTIVE', 'Reopen')];
+      case 'UNKNOWN':
+        return const [];
+      default:
+        return const [];
     }
   }
 }
@@ -560,13 +611,15 @@ class _TinyPill extends StatelessWidget {
 }
 
 String _walletStatusDisplay(String status) {
-  switch (status) {
+  switch (status.toUpperCase()) {
     case WalletStatusFilter.active:
       return 'Active';
     case WalletStatusFilter.frozen:
       return 'Frozen';
     case WalletStatusFilter.closed:
       return 'Closed';
+    case 'UNKNOWN':
+      return 'Unknown';
     default:
       return status;
   }

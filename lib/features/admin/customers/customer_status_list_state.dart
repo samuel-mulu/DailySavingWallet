@@ -5,8 +5,9 @@ abstract final class WalletStatusFilter {
   static const String active = 'ACTIVE';
   static const String frozen = 'FROZEN';
   static const String closed = 'CLOSED';
+  static const String unknown = 'UNKNOWN';
 
-  static const List<String> allValues = [all, active, frozen, closed];
+  static const List<String> allValues = [all, active, frozen, closed, unknown];
 }
 
 class CustomerStatusListState {
