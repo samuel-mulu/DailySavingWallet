@@ -315,6 +315,10 @@ class WalletRepo {
     return _walletApi.fetchDailySavingsReport(txDay);
   }
 
+  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(String activityDay) {
+    return _walletApi.fetchDailySavingsActivityReport(activityDay);
+  }
+
   Future<Map<String, dynamic>> fetchMonthlySavingsReport(String month) {
     return _walletApi.fetchMonthlySavingsReport(month);
   }

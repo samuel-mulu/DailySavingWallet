@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'app_brand.dart';
 import 'numeric_keypad.dart';
 
 /// Complete PIN input widget with visual indicators and numeric keypad
@@ -47,10 +49,7 @@ class _PinInputWidgetState extends State<PinInputWidget>
       vsync: this,
     );
     _shakeAnimation = Tween<double>(begin: 0, end: 10).animate(
-      CurvedAnimation(
-        parent: _shakeController,
-        curve: Curves.elasticIn,
-      ),
+      CurvedAnimation(parent: _shakeController, curve: Curves.elasticIn),
     );
   }
 
@@ -81,7 +80,7 @@ class _PinInputWidgetState extends State<PinInputWidget>
       setState(() {
         _pin += number;
       });
-      
+
       if (_pin.length == 4) {
         // Auto-submit when 4 digits entered
         Future.delayed(const Duration(milliseconds: 200), () {
@@ -129,9 +128,9 @@ class _PinInputWidgetState extends State<PinInputWidget>
             }),
           ),
         ),
-        
+
         const SizedBox(height: 32),
-        
+
         // Error Message
         if (widget.errorMessage != null) ...[
           Container(
@@ -152,7 +151,7 @@ class _PinInputWidgetState extends State<PinInputWidget>
           ),
           const SizedBox(height: 24),
         ],
-        
+
         // Numeric Keypad
         NumericKeypad(
           onNumberPressed: _onNumberPressed,
@@ -178,9 +177,9 @@ class _PinIndicator extends StatelessWidget {
       height: 16,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: filled ? const Color(0xFF8B5CF6) : Colors.transparent,
+        color: filled ? AppBrand.primary : Colors.transparent,
         border: Border.all(
-          color: filled ? const Color(0xFF8B5CF6) : const Color(0xFFE5E5E5),
+          color: filled ? AppBrand.primary : const Color(0xFFE5E5E5),
           width: 2,
         ),
       ),

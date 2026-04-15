@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'core/ui/app_brand.dart';
 import 'core/routing/app_navigator_key.dart';
 import 'core/routing/routes.dart';
 
@@ -10,10 +11,10 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: appNavigatorKey,
-      title: 'Daily Saving Wallet',
+      title: AppBrand.name,
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
-      initialRoute: AppRoutes.authGate,
+      initialRoute: AppRoutes.splash,
       onGenerateRoute: AppRoutes.onGenerateRoute,
       onUnknownRoute: AppRoutes.onUnknownRoute,
     );

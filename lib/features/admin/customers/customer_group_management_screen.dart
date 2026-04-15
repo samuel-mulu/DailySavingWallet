@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/ui/group_colors.dart';
 import '../../../data/api/api_client.dart';
 import '../../../data/customers/customer_group_model.dart';
 import '../../../data/customers/customer_model.dart';
@@ -18,16 +19,6 @@ class CustomerGroupManagementScreen extends StatefulWidget {
 class _CustomerGroupManagementScreenState
     extends State<CustomerGroupManagementScreen> {
   static const String _unassignedGroupKey = '__unassigned__';
-  static const List<String> _groupColorPalette = <String>[
-    '#8B5CF6',
-    '#0EA5E9',
-    '#10B981',
-    '#F59E0B',
-    '#EF4444',
-    '#EC4899',
-    '#6366F1',
-    '#14B8A6',
-  ];
   final CustomerRepo _repo = CustomerRepo();
 
   bool _loading = true;
@@ -119,11 +110,31 @@ class _CustomerGroupManagementScreenState
     });
   }
 
+  Set<String> _blockedGroupColorHexes({String? allowedColorHex}) {
+    return unavailablePaletteGroupColorHexes(
+      usedColorHexes: _groups.map((group) => group.colorHex),
+      allowedColorHexes: allowedColorHex == null
+          ? const <String>[]
+          : <String>[allowedColorHex],
+    );
+  }
+
+  String _suggestedGroupColorHex({String? preferredColorHex}) {
+    return preferredGroupColorHex(
+      usedColorHexes: _groups.map((group) => group.colorHex),
+      preferredColorHex: preferredColorHex,
+      allowedColorHexes: preferredColorHex == null
+          ? const <String>[]
+          : <String>[preferredColorHex],
+    );
+  }
+
   Future<void> _createGroup() async {
     final input = await _showGroupNameDialog(
       title: 'Create group',
       actionLabel: 'Create',
-      initialColorHex: _groupColorPalette.first,
+      initialColorHex: _suggestedGroupColorHex(),
+      unavailableColorHexes: _blockedGroupColorHexes(),
     );
     if (input == null) return;
 
@@ -143,7 +154,12 @@ class _CustomerGroupManagementScreenState
       title: 'Rename group',
       actionLabel: 'Save',
       initialValue: group.name,
-      initialColorHex: group.colorHex,
+      initialColorHex: _suggestedGroupColorHex(
+        preferredColorHex: group.colorHex,
+      ),
+      unavailableColorHexes: _blockedGroupColorHexes(
+        allowedColorHex: group.colorHex,
+      ),
     );
     if (input == null) return;
 
@@ -198,6 +214,7 @@ class _CustomerGroupManagementScreenState
     required String actionLabel,
     String initialValue = '',
     required String initialColorHex,
+    Iterable<String> unavailableColorHexes = const <String>[],
   }) async {
     return showDialog<_GroupDialogResult>(
       context: context,
@@ -206,7 +223,8 @@ class _CustomerGroupManagementScreenState
         actionLabel: actionLabel,
         initialValue: initialValue,
         initialColorHex: initialColorHex,
-        colorPalette: _groupColorPalette,
+        colorPalette: groupColorPalette,
+        unavailableColorHexes: unavailableColorHexes,
       ),
     );
   }
@@ -508,7 +526,7 @@ class _CustomerGroupManagementScreenState
                                   _SummaryChip(
                                     label: 'Not assigned',
                                     value: _unassignedCustomerCount.toString(),
-                                    color: const Color(0xFFF59E0B),
+                                    color: unassignedGroupColor,
                                   ),
                                 ],
                               ),
@@ -624,8 +642,8 @@ class _GroupCard extends StatelessWidget {
     final count = countOverride ?? customers.length;
     final icon = iconOverride ?? Icons.group_work_outlined;
     final accentColor = group == null
-        ? colorScheme.primary
-        : _colorFromHex(group!.colorHex);
+        ? unassignedGroupColor
+        : groupColorFromHex(group!.colorHex);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -867,6 +885,7 @@ class _GroupNameDialog extends StatefulWidget {
     required this.initialValue,
     required this.initialColorHex,
     required this.colorPalette,
+    required this.unavailableColorHexes,
   });
 
   final String title;
@@ -874,6 +893,7 @@ class _GroupNameDialog extends StatefulWidget {
   final String initialValue;
   final String initialColorHex;
   final List<String> colorPalette;
+  final Iterable<String> unavailableColorHexes;
 
   @override
   State<_GroupNameDialog> createState() => _GroupNameDialogState();
@@ -883,12 +903,22 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
   late final TextEditingController _controller;
   final _formKey = GlobalKey<FormState>();
   late String _selectedColorHex;
+  late final Set<String> _unavailableColorHexes;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
-    _selectedColorHex = widget.initialColorHex;
+    _controller.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+    _unavailableColorHexes = widget.unavailableColorHexes
+        .map(tryNormalizeGroupColorHex)
+        .whereType<String>()
+        .toSet();
+    _selectedColorHex = normalizeGroupColorHex(widget.initialColorHex);
   }
 
   @override
@@ -911,6 +941,11 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final hasBlockedColors = _unavailableColorHexes.isNotEmpty;
+    final previewLabel = _controller.text.trim().isEmpty
+        ? 'Group preview'
+        : _controller.text.trim();
+
     return AlertDialog(
       title: Text(widget.title),
       content: SizedBox(
@@ -944,38 +979,101 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
             ),
             const SizedBox(height: 14),
             Text('Group color', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 4),
+            Text(
+              hasBlockedColors
+                  ? 'Choose a color that is not already used by another group.'
+                  : 'Choose a color for this group.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 for (final colorHex in widget.colorPalette)
-                  InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: () => setState(() => _selectedColorHex = colorHex),
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        color: _colorFromHex(colorHex),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _selectedColorHex == colorHex
-                              ? Colors.black87
-                              : Colors.transparent,
-                          width: 2,
+                  Builder(
+                    builder: (context) {
+                      final isSelected = _selectedColorHex == colorHex;
+                      final isUnavailable =
+                          _unavailableColorHexes.contains(colorHex) &&
+                          !isSelected;
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(999),
+                        onTap: isUnavailable
+                            ? null
+                            : () =>
+                                  setState(() => _selectedColorHex = colorHex),
+                        child: Opacity(
+                          opacity: isUnavailable ? 0.35 : 1,
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: groupColorFromHex(colorHex),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.black87
+                                    : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
+                            child: isSelected
+                                ? const Icon(
+                                    Icons.check,
+                                    size: 14,
+                                    color: Colors.white,
+                                  )
+                                : isUnavailable
+                                ? const Icon(
+                                    Icons.block_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  )
+                                : null,
+                          ),
                         ),
-                      ),
-                      child: _selectedColorHex == colorHex
-                          ? const Icon(
-                              Icons.check,
-                              size: 14,
-                              color: Colors.white,
-                            )
-                          : null,
-                    ),
+                      );
+                    },
                   ),
               ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: groupColorFromHex(
+                  _selectedColorHex,
+                ).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: groupColorFromHex(
+                    _selectedColorHex,
+                  ).withValues(alpha: 0.28),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: groupColorFromHex(_selectedColorHex),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      previewLabel,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -996,11 +1094,4 @@ class _GroupDialogResult {
 
   final String name;
   final String colorHex;
-}
-
-Color _colorFromHex(String colorHex) {
-  final clean = colorHex.trim().replaceFirst('#', '');
-  final value = int.tryParse(clean, radix: 16);
-  if (value == null) return const Color(0xFF8B5CF6);
-  return Color(0xFF000000 | value);
 }

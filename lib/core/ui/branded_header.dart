@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Purple gradient header card for consistent branding across auth screens
+import 'app_brand.dart';
+
+/// Clean branded header for auth and app lock screens.
 class BrandedHeader extends StatelessWidget {
   final String title;
   final String? subtitle;
@@ -17,49 +19,88 @@ class BrandedHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+        gradient: LinearGradient(
+          colors: <Color>[
+            Colors.white,
+            AppBrand.surface,
+            AppBrand.primary.withValues(alpha: 0.08),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppBrand.primary.withValues(alpha: 0.12)),
+        boxShadow: <BoxShadow>[
           BoxShadow(
-            color: const Color(0xFF8B5CF6).withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: AppBrand.primary.withValues(alpha: 0.10),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
           ),
         ],
       ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 40,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
+      child: Stack(
+        children: <Widget>[
+          Positioned(
+            top: -28,
+            right: -24,
+            child: Container(
+              width: 118,
+              height: 118,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppBrand.accent.withValues(alpha: 0.08),
               ),
-              textAlign: TextAlign.center,
             ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                subtitle!,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                ),
-                textAlign: TextAlign.center,
+          ),
+          Positioned(
+            bottom: -36,
+            left: -18,
+            child: Container(
+              width: 128,
+              height: 128,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppBrand.primary.withValues(alpha: 0.08),
               ),
-            ],
-          ],
-        ),
+            ),
+          ),
+          Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  const AppLogo(size: 82, borderRadius: 24, padding: 8),
+                  const SizedBox(height: 18),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: AppBrand.textPrimary,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Text(
+                      subtitle!,
+                      style: const TextStyle(
+                        color: AppBrand.textMuted,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

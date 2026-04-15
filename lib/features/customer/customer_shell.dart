@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/network/reachability_host.dart';
-import '../../core/ui/coming_soon_placeholder.dart';
 import '../../core/ui/sync_status_banner.dart';
 import '../../data/users/user_model.dart';
 import '../auth/providers/auth_providers.dart';
 import '../wallet/wallet_providers.dart';
 import 'tabs/customer_history_tab.dart';
 import 'tabs/customer_home_tab.dart';
+import 'tabs/customer_reports_tab.dart';
 import 'tabs/customer_settings_tab.dart';
 
 class CustomerShell extends ConsumerStatefulWidget {
@@ -106,7 +106,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell>
     final Widget body = switch (_index) {
       0 => const CustomerHomeTab(),
       1 => CustomerHistoryTab(refreshSignal: _historyRefreshSignal),
-      _ => const ComingSoonPlaceholder(),
+      _ => const CustomerReportsTab(),
     };
 
     return Scaffold(
@@ -134,13 +134,7 @@ class _CustomerShellState extends ConsumerState<CustomerShell>
                     IconButton(
                       tooltip: 'Reports',
                       icon: const Icon(Icons.assessment_outlined),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Reports — coming soon'),
-                          ),
-                        );
-                      },
+                      onPressed: () => _onTabSelected(2),
                     ),
                     IconButton(
                       tooltip: 'Settings',

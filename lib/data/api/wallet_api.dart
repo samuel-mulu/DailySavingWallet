@@ -133,6 +133,13 @@ class WalletApi {
     );
   }
 
+  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(String activityDay) {
+    return _client.getJson(
+      '/wallet/stats/reports/daily-activity',
+      queryParameters: {'activityDay': activityDay},
+    );
+  }
+
   Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) async {
     final data = await _client.getJson(
       '/wallet/stats/reports/daily',

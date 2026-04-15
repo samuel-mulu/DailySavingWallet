@@ -22,9 +22,9 @@ String _walletOperationalLabel(String status) {
     case 'ACTIVE':
       return 'Active';
     case 'FROZEN':
-      return 'Frozen';
+      return 'Frozen (System)';
     case 'CLOSED':
-      return 'Closed';
+      return 'Closed (Admin)';
     case 'UNKNOWN':
       return 'Unknown';
     default:

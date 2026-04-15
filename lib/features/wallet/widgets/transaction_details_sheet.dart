@@ -1,15 +1,31 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/dates/date_formatters.dart';
 import '../../../core/money/money.dart';
+import '../../../core/settings/calendar_mode.dart';
 import '../../../data/wallet/models.dart';
 
 class TransactionDetailsSheet extends StatelessWidget {
   final LedgerTx tx;
-  const TransactionDetailsSheet({super.key, required this.tx});
+  final CalendarMode calendarMode;
+
+  const TransactionDetailsSheet({
+    super.key,
+    required this.tx,
+    this.calendarMode = CalendarMode.gregorian,
+  });
 
   @override
   Widget build(BuildContext context) {
     final meta = tx.meta ?? const {};
+    final savingDay = tx.txDate == null
+        ? '—'
+        : formatTxDay(toTxDay(tx.txDate!.toUtc()), calendarMode, locale: 'am');
+    final recorded = tx.createdAt == null
+        ? '—'
+        : '${formatInstantDate(tx.createdAt!, calendarMode, locale: 'am')} · '
+            '${formatEatTime(tx.createdAt!)}';
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -27,8 +43,8 @@ class TransactionDetailsSheet extends StatelessWidget {
                 'Balance After',
                 MoneyEtb.formatCents(tx.balanceAfterCents!),
               ),
-            _row('Transaction Date', _formatDate(tx.txDate)),
-            _row('Created At', _formatDateTime(tx.createdAt)),
+            _row('Saving day', savingDay),
+            _row('Recorded', recorded),
             _row('By', tx.createdByUid.isEmpty ? '—' : tx.createdByUid),
             if (meta.isNotEmpty) ...[
               if (tx.type == 'WITHDRAW_APPROVE') ...[
@@ -82,16 +98,6 @@ class TransactionDetailsSheet extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return '—';
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
-  String _formatDateTime(DateTime? date) {
-    if (date == null) return '—';
-    return '${_formatDate(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
   }
 
   int _toInt(Object? value) {

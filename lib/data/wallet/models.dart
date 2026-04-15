@@ -429,10 +429,15 @@ int _toInt(Object? value) {
   return 0;
 }
 
+/// Backend sends UTC ISO-8601 (e.g. `...Z`). Keep as UTC for stable EAT display.
 DateTime? _parseDateTime(Object? value) {
-  if (value is DateTime) return value;
+  if (value is DateTime) return value.toUtc();
   if (value is String && value.isNotEmpty) {
-    return DateTime.tryParse(value)?.toLocal();
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return null;
+    if (parsed.isUtc) return parsed;
+    // Offset form `+00:00` etc.: normalize to UTC.
+    return parsed.toUtc();
   }
   return null;
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/api/api_client.dart';
+import '../../core/ui/app_brand.dart';
+import '../../data/api/api_client.dart';
 import 'providers/auth_providers.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -43,7 +44,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
-      await ref.read(authClientProvider).signInWithEmailAndPassword(
+      await ref
+          .read(authClientProvider)
+          .signInWithEmailAndPassword(
             email: _email.text.trim(),
             password: _pass.text,
           );
@@ -60,9 +63,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final email = _email.text.trim();
     final validationMessage = LoginScreen.validateForgotPasswordEmail(email);
     if (validationMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(validationMessage)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(validationMessage)));
       return;
     }
 
@@ -79,62 +82,93 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
     } on BackendApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF7FAFA),
       body: SafeArea(
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.96),
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppBrand.primary.withValues(alpha: 0.08),
+                  ),
+                ),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: AppBrand.primary.withValues(alpha: 0.05),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.savings_rounded,
-                      size: 24,
-                      color: Colors.white,
-                    ),
+                  const AppLogo(
+                    size: 64,
+                    borderRadius: 18,
+                    padding: 6,
+                    showShadow: false,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Welcome to',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: const Color(0xFF6B7280),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppBrand.surface,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: AppBrand.accent.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: const Text(
+                            'Secure Login',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppBrand.primary,
+                            ),
                           ),
                         ),
+                        const SizedBox(height: 10),
                         const Text(
-                          'Daily Saving',
+                          AppBrand.name,
                           style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF8B5CF6),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: AppBrand.textPrimary,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Sign in to continue to your MAHTOT workspace.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: AppBrand.textMuted,
                           ),
                         ),
                       ],
@@ -154,11 +188,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Container(
                         constraints: const BoxConstraints(maxWidth: 400),
                         child: Card(
-                          elevation: 8,
-                          shadowColor: Colors.black26,
+                          elevation: 10,
+                          shadowColor: AppBrand.primary.withValues(alpha: 0.12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
+                          surfaceTintColor: Colors.white,
                           child: Padding(
                             padding: const EdgeInsets.all(28),
                             child: Column(
@@ -169,16 +204,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   'Login',
                                   style: TextStyle(
                                     fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF2D2D2D),
+                                    fontWeight: FontWeight.w800,
+                                    color: AppBrand.textPrimary,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                Text(
+                                const Text(
                                   'Please sign in to continue',
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: const Color(0xFF6B7280),
+                                    color: AppBrand.textMuted,
                                   ),
                                 ),
                                 const SizedBox(height: 28),
@@ -248,18 +283,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 Container(
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xFF8B5CF6),
-                                        Color(0xFF7C3AED),
+                                      colors: <Color>[
+                                        AppBrand.primary,
+                                        AppBrand.primaryDark,
                                       ],
                                     ),
                                     borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
+                                    boxShadow: <BoxShadow>[
                                       BoxShadow(
-                                        color: const Color(0xFF8B5CF6)
-                                            .withOpacity(0.4),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 4),
+                                        color: AppBrand.primary.withValues(
+                                          alpha: 0.28,
+                                        ),
+                                        blurRadius: 14,
+                                        offset: const Offset(0, 8),
                                       ),
                                     ],
                                   ),
@@ -279,9 +315,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                                   strokeWidth: 2,
                                                   valueColor:
                                                       AlwaysStoppedAnimation<
-                                                          Color>(
-                                                    Colors.white,
-                                                  ),
+                                                        Color
+                                                      >(Colors.white),
                                                 ),
                                               )
                                             : Row(
@@ -334,12 +369,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-                      Text(
-                        'Save Daily | Grow Daily',
+                      const Text(
+                        'Professional daily saving access',
                         style: TextStyle(
                           fontSize: 13,
-                          color: const Color(0xFF6B7280),
-                          fontWeight: FontWeight.w500,
+                          color: AppBrand.textMuted,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],

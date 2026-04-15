@@ -5,6 +5,7 @@ import '../../features/admin/admin_tab.dart';
 import '../../features/admin/customers/create_customer_screen.dart';
 import '../../features/admin/customers/customer_status_screen.dart';
 import '../../features/auth/auth_gate.dart';
+import '../../features/auth/splash_screen.dart';
 
 final class AppRoutes {
   AppRoutes._();
@@ -19,7 +20,7 @@ final class AppRoutes {
     switch (settings.name) {
       case splash:
         return MaterialPageRoute(
-          builder: (_) => const AuthGate(),
+          builder: (_) => const SplashScreen(),
           settings: settings,
         );
       case authGate:

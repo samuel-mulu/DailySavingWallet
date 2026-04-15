@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
+import '../../../core/dates/date_formatters.dart';
 import '../../../core/money/money.dart';
+import '../../../core/settings/calendar_mode.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../data/wallet/models.dart';
 import '../../../data/wallet/wallet_repo.dart';
@@ -20,6 +22,15 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
   DateTime _selectedDate = DateTime.now();
   int _dailyReportNonce = 0;
   int _monthlyReportNonce = 0;
+  CalendarModeService? _calendarService;
+
+  @override
+  void initState() {
+    super.initState();
+    CalendarModeService.getInstance().then((s) {
+      if (mounted) setState(() => _calendarService = s);
+    });
+  }
 
   String get _txDay =>
       '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
@@ -28,140 +39,173 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: DateSelector(
-              selectedDate: _selectedDate,
-              onDateChanged: (value) => setState(() => _selectedDate = value),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _CompanyWalletEntryCard(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const _CompanyWalletReportPage(),
+    if (_calendarService == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return ValueListenableBuilder<CalendarMode>(
+      valueListenable: _calendarService!,
+      builder: (context, calendarMode, _) {
+        return DefaultTabController(
+          length: 2,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: DateSelector(
+                  selectedDate: _selectedDate,
+                  onDateChanged: (value) => setState(() => _selectedDate = value),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const TabBar(
-            tabs: [
-              Tab(text: 'Daily'),
-              Tab(text: 'Monthly'),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _CompanyWalletEntryCard(
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const _CompanyWalletReportPage(),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const TabBar(
+                tabs: [
+                  Tab(text: 'Daily'),
+                  Tab(text: 'Monthly'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    RefreshIndicator(
+                      onRefresh: () async => setState(() => _dailyReportNonce++),
+                      child: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          _StableReportFuture(
+                            key: ValueKey<String>(
+                              'd_${_txDay}_$_dailyReportNonce',
+                            ),
+                            load: () =>
+                                _repo.fetchDailySavingsActivityReport(_txDay),
+                            builder: (context, snap) {
+                              if (snap.hasError) {
+                                return _ReportErrorCard(
+                                  message: '${snap.error}',
+                                  onRetry: () =>
+                                      setState(() => _dailyReportNonce++),
+                                );
+                              }
+                              if (snap.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !snap.hasData) {
+                                return const _ReportLoadingCard(
+                                  title: 'Daily collections',
+                                  accentColor: Color(0xFF10B981),
+                                  icon: Icons.calendar_today_outlined,
+                                );
+                              }
+                              final data =
+                                  snap.data ?? const <String, dynamic>{};
+                              return _ReportCard(
+                                title: 'Daily collections',
+                                accentColor: const Color(0xFF10B981),
+                                icon: Icons.calendar_today_outlined,
+                                body: _DailyActivityReportSummary(data: data),
+                                onViewDetail: () => _showDailyActivityDetail(
+                                  context,
+                                  data,
+                                  calendarMode,
+                                ),
+                                onExportPdf: () =>
+                                    _exportDailyActivityPdf(context, data),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    RefreshIndicator(
+                      onRefresh: () async =>
+                          setState(() => _monthlyReportNonce++),
+                      child: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          _StableReportFuture(
+                            key: ValueKey<String>(
+                              'm_${_month}_$_monthlyReportNonce',
+                            ),
+                            load: () =>
+                                _repo.fetchMonthlySavingsReport(_month),
+                            builder: (context, snap) {
+                              if (snap.hasError) {
+                                return _ReportErrorCard(
+                                  message: '${snap.error}',
+                                  onRetry: () =>
+                                      setState(() => _monthlyReportNonce++),
+                                );
+                              }
+                              if (snap.connectionState ==
+                                      ConnectionState.waiting &&
+                                  !snap.hasData) {
+                                return const _ReportLoadingCard(
+                                  title: 'Monthly overview',
+                                  accentColor: Color(0xFF0EA5E9),
+                                  icon: Icons.calendar_month_outlined,
+                                );
+                              }
+                              final data =
+                                  snap.data ?? const <String, dynamic>{};
+                              final daily = (data['daily'] as List?) ??
+                                  const <dynamic>[];
+                              return _ReportCard(
+                                title: 'Monthly overview',
+                                accentColor: const Color(0xFF0EA5E9),
+                                icon: Icons.calendar_month_outlined,
+                                body: _MonthlyReportSummary(
+                                  data: data,
+                                  dayCount: daily.length,
+                                  calendarMode: calendarMode,
+                                ),
+                                onViewDetail: () => _showMonthlyDetail(
+                                  context,
+                                  data,
+                                  calendarMode,
+                                ),
+                                onExportPdf: () =>
+                                    _exportMonthlyPdf(context, data),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                RefreshIndicator(
-                  onRefresh: () async => setState(() => _dailyReportNonce++),
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _StableReportFuture(
-                        key: ValueKey<String>('d_${_txDay}_$_dailyReportNonce'),
-                        load: () => _repo.fetchDailySavingsReport(_txDay),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return _ReportErrorCard(
-                              message: '${snap.error}',
-                              onRetry: () =>
-                                  setState(() => _dailyReportNonce++),
-                            );
-                          }
-                          if (snap.connectionState == ConnectionState.waiting &&
-                              !snap.hasData) {
-                            return const _ReportLoadingCard(
-                              title: 'Daily Savings',
-                              accentColor: Color(0xFF10B981),
-                              icon: Icons.calendar_today_outlined,
-                            );
-                          }
-                          final data = snap.data ?? const <String, dynamic>{};
-                          return _ReportCard(
-                            title: 'Daily Savings',
-                            accentColor: const Color(0xFF10B981),
-                            icon: Icons.calendar_today_outlined,
-                            body: _DailyReportSummary(data: data),
-                            onViewDetail: () => _showDailyDetail(context, data),
-                            onExportPdf: () => _exportDailyPdf(context, data),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                RefreshIndicator(
-                  onRefresh: () async => setState(() => _monthlyReportNonce++),
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _StableReportFuture(
-                        key: ValueKey<String>('m_${_month}_$_monthlyReportNonce'),
-                        load: () => _repo.fetchMonthlySavingsReport(_month),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return _ReportErrorCard(
-                              message: '${snap.error}',
-                              onRetry: () =>
-                                  setState(() => _monthlyReportNonce++),
-                            );
-                          }
-                          if (snap.connectionState == ConnectionState.waiting &&
-                              !snap.hasData) {
-                            return const _ReportLoadingCard(
-                              title: 'Monthly Savings',
-                              accentColor: Color(0xFF0EA5E9),
-                              icon: Icons.calendar_month_outlined,
-                            );
-                          }
-                          final data = snap.data ?? const <String, dynamic>{};
-                          final daily =
-                              (data['daily'] as List?) ?? const <dynamic>[];
-                          return _ReportCard(
-                            title: 'Monthly Savings',
-                            accentColor: const Color(0xFF0EA5E9),
-                            icon: Icons.calendar_month_outlined,
-                            body: _MonthlyReportSummary(
-                              data: data,
-                              dayCount: daily.length,
-                            ),
-                            onViewDetail: () =>
-                                _showMonthlyDetail(context, data),
-                            onExportPdf: () =>
-                                _exportMonthlyPdf(context, data),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Future<void> _exportDailyPdf(
+  String _formatReportIsoDay(String iso, CalendarMode mode) {
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(iso)) return iso;
+    return formatTxDay(iso, mode, locale: 'am');
+  }
+
+  Future<void> _exportDailyActivityPdf(
     BuildContext context,
     Map<String, dynamic> data,
   ) async {
     try {
-      final bytes = await buildDailySavingsReportPdf(
+      final bytes = await buildDailySavingsActivityReportPdf(
         data: data,
         generatedAt: DateTime.now(),
       );
-      final day = '${data['txDay'] ?? _txDay}'.replaceAll('-', '');
+      final day = '${data['activityDay'] ?? _txDay}'.replaceAll('-', '');
       if (!context.mounted) return;
-      await Printing.sharePdf(bytes: bytes, filename: 'daily-savings-$day.pdf');
+      await Printing.sharePdf(bytes: bytes, filename: 'daily-activity-$day.pdf');
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,7 +226,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       );
       final m = '${data['month'] ?? _month}'.replaceAll('-', '');
       if (!context.mounted) return;
-      await Printing.sharePdf(bytes: bytes, filename: 'monthly-savings-$m.pdf');
+      await Printing.sharePdf(bytes: bytes, filename: 'monthly-overview-$m.pdf');
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -191,9 +235,19 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
     }
   }
 
-  void _showDailyDetail(BuildContext context, Map<String, dynamic> data) {
-    final saved = _mapList(data['savedBreakdown']);
-    final pending = _mapList(data['pendingBreakdown']);
+  void _showDailyActivityDetail(
+    BuildContext context,
+    Map<String, dynamic> data,
+    CalendarMode calendarMode,
+  ) {
+    final lines = _mapList(data['lines'])
+      ..sort((a, b) {
+        final n = '${a['customerName']}'.compareTo('${b['customerName']}');
+        if (n != 0) return n;
+        final d = '${a['coveredTxDay'] ?? ''}'.compareTo('${b['coveredTxDay'] ?? ''}');
+        if (d != 0) return d;
+        return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
+      });
     final theme = Theme.of(context);
     showModalBottomSheet<void>(
       context: context,
@@ -213,7 +267,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Daily report',
+                      'Daily collections',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -223,50 +277,42 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                     tooltip: 'Download PDF',
                     onPressed: () {
                       Navigator.pop(context);
-                      _exportDailyPdf(sheetContext, data);
+                      _exportDailyActivityPdf(sheetContext, data);
                     },
                     icon: const Icon(Icons.picture_as_pdf_outlined),
                   ),
                 ],
               ),
-              _DailyReportSummary(data: data, compact: true),
+              Text(
+                _formatReportIsoDay('${data['activityDay'] ?? ''}', calendarMode),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _DailyActivityReportSummary(data: data, compact: true),
               const SizedBox(height: 16),
               Text(
-                'Saved today (${saved.length})',
+                'Payments (${lines.length})',
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: const Color(0xFF059669),
                 ),
               ),
               const SizedBox(height: 8),
-              if (saved.isEmpty)
+              if (lines.isEmpty)
                 Text(
-                  'No wallets recorded for this day.',
+                  'Nothing recorded for this day.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 )
               else
-                ...saved.map((row) => _WalletBreakdownTile(row: row, saved: true)),
-              const SizedBox(height: 20),
-              Text(
-                'Pending (${pending.length})',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFFD97706),
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (pending.isEmpty)
-                Text(
-                  'All active wallets have a saving for this day.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                ...lines.map(
+                  (row) => _ActivityLineTile(
+                    row: row,
+                    calendarMode: calendarMode,
                   ),
-                )
-              else
-                ...pending.map(
-                  (row) => _WalletBreakdownTile(row: row, saved: false),
                 ),
             ],
           );
@@ -275,7 +321,11 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
     );
   }
 
-  void _showMonthlyDetail(BuildContext context, Map<String, dynamic> data) {
+  void _showMonthlyDetail(
+    BuildContext context,
+    Map<String, dynamic> data,
+    CalendarMode calendarMode,
+  ) {
     final daily = (data['daily'] as List?) ?? const [];
     final theme = Theme.of(context);
     showModalBottomSheet<void>(
@@ -296,7 +346,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Monthly report',
+                      'Monthly overview',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -312,9 +362,11 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
               _MonthlyReportSummary(
                 data: data,
                 dayCount: daily.length,
+                calendarMode: calendarMode,
                 compact: true,
               ),
               const SizedBox(height: 16),
@@ -327,7 +379,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
               const SizedBox(height: 8),
               if (daily.isEmpty)
                 Text(
-                  'No daily savings in this month.',
+                  'No data for this month.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -342,7 +394,10 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                         ListTile(
                           dense: true,
                           title: Text(
-                            '${daily[i]['txDay']}',
+                            _formatReportIsoDay(
+                              '${daily[i]['txDay'] ?? ''}',
+                              calendarMode,
+                            ),
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text(
@@ -430,8 +485,8 @@ int _reportIntFromJson(Object? value) {
   return 0;
 }
 
-class _DailyReportSummary extends StatelessWidget {
-  const _DailyReportSummary({
+class _DailyActivityReportSummary extends StatelessWidget {
+  const _DailyActivityReportSummary({
     required this.data,
     this.compact = false,
   });
@@ -442,17 +497,26 @@ class _DailyReportSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final total = _reportIntFromJson(data['totalSavedCents']);
-    final progress = (data['progressPct'] is num)
-        ? (data['progressPct'] as num).toDouble().clamp(0, 100)
-        : double.tryParse('${data['progressPct']}')?.clamp(0, 100) ?? 0.0;
+    final total = _reportIntFromJson(data['totalCollectedCents']);
+    final paymentCount = _reportIntFromJson(data['paymentCount']);
     final pad = compact ? 12.0 : 0.0;
 
     final stats = <_StatItem>[
-      _StatItem('Customers', '${data['activeCustomers'] ?? 0}', Icons.people_outline),
-      _StatItem('Wallets', '${data['activeWallets'] ?? 0}', Icons.account_balance_wallet_outlined),
-      _StatItem('Saved', '${data['savedWalletCount'] ?? 0}', Icons.check_circle_outline),
-      _StatItem('Pending', '${data['pendingWalletCount'] ?? 0}', Icons.pending_outlined),
+      _StatItem(
+        'Customers',
+        '${data['distinctCustomerCount'] ?? 0}',
+        Icons.people_outline,
+      ),
+      _StatItem(
+        'Wallets',
+        '${data['distinctWalletCount'] ?? 0}',
+        Icons.account_balance_wallet_outlined,
+      ),
+      _StatItem(
+        'Payments',
+        '$paymentCount',
+        Icons.receipt_long_outlined,
+      ),
     ];
 
     return Column(
@@ -470,20 +534,10 @@ class _DailyReportSummary extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Total saved · ${progress.toStringAsFixed(1)}% of wallets',
+          'Total collected',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: progress / 100,
-            minHeight: compact ? 8 : 10,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            color: const Color(0xFF10B981),
           ),
         ),
         const SizedBox(height: 16),
@@ -518,24 +572,27 @@ class _MonthlyReportSummary extends StatelessWidget {
   const _MonthlyReportSummary({
     required this.data,
     required this.dayCount,
+    required this.calendarMode,
     this.compact = false,
   });
 
   final Map<String, dynamic> data;
   final int dayCount;
+  final CalendarMode calendarMode;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final total = _reportIntFromJson(data['totalSavedCents']);
-    final month = '${data['month'] ?? ''}';
+    final monthKey = '${data['month'] ?? ''}';
+    final monthLabel = formatApiMonth(monthKey, calendarMode, locale: 'am');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          month,
+          monthLabel,
           textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w700,
@@ -554,7 +611,7 @@ class _MonthlyReportSummary extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '$dayCount day${dayCount == 1 ? '' : 's'} with savings activity',
+          '$dayCount day${dayCount == 1 ? '' : 's'} with activity',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
@@ -566,14 +623,14 @@ class _MonthlyReportSummary extends StatelessWidget {
   }
 }
 
-class _WalletBreakdownTile extends StatelessWidget {
-  const _WalletBreakdownTile({
+class _ActivityLineTile extends StatelessWidget {
+  const _ActivityLineTile({
     required this.row,
-    required this.saved,
+    required this.calendarMode,
   });
 
   final Map<String, dynamic> row;
-  final bool saved;
+  final CalendarMode calendarMode;
 
   @override
   Widget build(BuildContext context) {
@@ -581,13 +638,22 @@ class _WalletBreakdownTile extends StatelessWidget {
     final name = '${row['customerName'] ?? ''}'.trim();
     final company = '${row['companyName'] ?? ''}'.trim();
     final wallet = '${row['walletLabel'] ?? ''}'.trim();
-    final amount = saved
-        ? _reportIntFromJson(row['amountCents'])
-        : _reportIntFromJson(row['dailyTargetCents']);
-    final trailing = MoneyEtb.formatCents(amount);
+    final coveredRaw = '${row['coveredTxDay'] ?? ''}'.trim();
+    final covered = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(coveredRaw)
+        ? formatTxDay(coveredRaw, calendarMode, locale: 'am')
+        : coveredRaw;
+    final amount = _reportIntFromJson(row['amountCents']);
+    final createdRaw = row['createdAt'];
+    final createdAt = createdRaw is String
+        ? DateTime.tryParse(createdRaw)
+        : createdRaw is DateTime
+            ? createdRaw
+            : null;
     final sub = <String>[
       if (company.isNotEmpty) company,
       if (wallet.isNotEmpty) wallet,
+      if (covered.isNotEmpty) 'Saving day: $covered',
+      if (createdAt != null) formatEatTime(createdAt),
     ].join(' · ');
 
     return Card(
@@ -601,14 +667,14 @@ class _WalletBreakdownTile extends StatelessWidget {
             ? null
             : Text(
                 sub,
-                maxLines: 2,
+                maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
         trailing: Text(
-          trailing,
+          MoneyEtb.formatCents(amount),
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w700,
-            color: saved ? const Color(0xFF059669) : const Color(0xFFD97706),
+            color: const Color(0xFF059669),
           ),
         ),
       ),
@@ -695,10 +761,28 @@ class _CompanyWalletReportPage extends StatefulWidget {
 
 class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
   final _repo = WalletRepo();
+  CalendarModeService? _calendarService;
+
+  @override
+  void initState() {
+    super.initState();
+    CalendarModeService.getInstance().then((s) {
+      if (mounted) setState(() => _calendarService = s);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    if (_calendarService == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Company Wallet')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    return ValueListenableBuilder<CalendarMode>(
+      valueListenable: _calendarService!,
+      builder: (context, calendarMode, _) {
+        return Scaffold(
       appBar: AppBar(title: const Text('Company Wallet')),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _repo.fetchCompanyWalletReport(limit: 60),
@@ -872,6 +956,7 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
                               tx: LedgerTx.fromBackendMap(
                                 Map<String, dynamic>.from(entry as Map),
                               ),
+                              calendarMode: calendarMode,
                             ),
                           )
                           .toList(),
@@ -882,6 +967,8 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
           );
         },
       ),
+    );
+      },
     );
   }
 

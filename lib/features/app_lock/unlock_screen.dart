@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
 
 import '../../core/security/app_lock_service.dart';
+import '../../core/ui/app_brand.dart';
 import '../../core/ui/branded_header.dart';
 import '../../core/ui/pin_input_widget.dart';
 
 class UnlockScreen extends StatefulWidget {
   final String uid;
   final VoidCallback onUnlocked;
+
   const UnlockScreen({super.key, required this.uid, required this.onUnlocked});
 
   @override
@@ -21,7 +23,6 @@ class _UnlockScreenState extends State<UnlockScreen> {
   final _pinController = PinInputWidgetController();
 
   String? _error;
-
   int _failCount = 0;
   DateTime? _lockedUntil;
 
@@ -39,7 +40,6 @@ class _UnlockScreenState extends State<UnlockScreen> {
 
   Future<void> _tryBiometric() async {
     try {
-      // Biometrics are not supported on Flutter Web in this flow
       if (kIsWeb) return;
 
       final bioEnabled = await _lock.biometricEnabled();
@@ -53,9 +53,11 @@ class _UnlockScreenState extends State<UnlockScreen> {
         localizedReason: 'Unlock to access your wallet',
       );
 
-      if (ok && mounted) _unlock();
+      if (ok && mounted) {
+        _unlock();
+      }
     } catch (_) {
-      // Biometric failed -> user can still unlock with PIN
+      // Biometric errors are non-fatal; the PIN flow stays available.
     }
   }
 
@@ -76,12 +78,9 @@ class _UnlockScreenState extends State<UnlockScreen> {
       return;
     }
 
-    setState(() {
-      _error = null;
-    });
+    setState(() => _error = null);
 
     final ok = await _lock.verifyPin(pin);
-
     if (!mounted) return;
 
     if (ok) {
@@ -95,9 +94,7 @@ class _UnlockScreenState extends State<UnlockScreen> {
     if (_failCount >= 5) {
       _lockedUntil = DateTime.now().add(const Duration(seconds: 30));
       _failCount = 0;
-      setState(() {
-        _error = 'Too many attempts. Locked for 30 seconds.';
-      });
+      setState(() => _error = 'Too many attempts. Locked for 30 seconds.');
       return;
     }
 
@@ -108,67 +105,51 @@ class _UnlockScreenState extends State<UnlockScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final lockMsg = _isTempLocked
-        ? 'Locked… wait a moment'
+    final lockMessage = _isTempLocked
+        ? 'Locked... wait a moment'
         : 'Unlock Your Wallet';
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF7FAFA),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 20),
-                    
-                    // Purple Branding Header
-                    const BrandedHeader(
-                      title: 'Daily Saving',
-                      height: 150,
-                    ),
-                    
-                    const SizedBox(height: 40),
-                    
-                    // Unlock Heading
-                    Text(
-                      lockMsg,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2D2D2D),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Enter your 4-digit PIN',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: const Color(0xFF6B7280),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    
-                    const SizedBox(height: 48),
-                    
-                    // PIN Input Widget with Keypad
-                    PinInputWidget(
-                      controller: _pinController,
-                      onPinComplete: _verifyPin,
-                      showBiometric: !kIsWeb,
-                      onBiometricPressed: _tryBiometric,
-                      errorMessage: _error,
-                    ),
-                    
-                    const SizedBox(height: 40),
-                  ],
-                ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const SizedBox(height: 20),
+              const BrandedHeader(
+                title: AppBrand.shortName,
+                subtitle: 'Secure PIN access',
+                height: 168,
               ),
-            ),
-          ],
+              const SizedBox(height: 40),
+              Text(
+                lockMessage,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: AppBrand.textPrimary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Enter your 4-digit PIN',
+                style: TextStyle(fontSize: 14, color: AppBrand.textMuted),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 48),
+              PinInputWidget(
+                controller: _pinController,
+                onPinComplete: _verifyPin,
+                showBiometric: !kIsWeb,
+                onBiometricPressed: _tryBiometric,
+                errorMessage: _error,
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );

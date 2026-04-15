@@ -40,23 +40,19 @@ String _companyLine(String companyName) {
   return c.isEmpty ? '—' : c;
 }
 
-/// Admin report: one day, saved vs pending wallet rows with names (from API).
-Future<Uint8List> buildDailySavingsReportPdf({
+/// Admin daily collections PDF (by posting day).
+Future<Uint8List> buildDailySavingsActivityReportPdf({
   required Map<String, dynamic> data,
   required DateTime generatedAt,
 }) async {
   final doc = await _documentWithNotoFonts();
-  final txDay = '${data['txDay'] ?? ''}';
-  final saved = _mapList(data['savedBreakdown'])
+  final activityDay = '${data['activityDay'] ?? ''}';
+  final lines = _mapList(data['lines'])
     ..sort((a, b) {
       final n = '${a['customerName']}'.compareTo('${b['customerName']}');
       if (n != 0) return n;
-      return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
-    });
-  final pending = _mapList(data['pendingBreakdown'])
-    ..sort((a, b) {
-      final n = '${a['customerName']}'.compareTo('${b['customerName']}');
-      if (n != 0) return n;
+      final d = '${a['coveredTxDay'] ?? ''}'.compareTo('${b['coveredTxDay'] ?? ''}');
+      if (d != 0) return d;
       return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
     });
 
@@ -70,12 +66,12 @@ Future<Uint8List> buildDailySavingsReportPdf({
       margin: const pw.EdgeInsets.all(40),
       build: (context) => [
         pw.Text(
-          'Daily savings report',
+          'Daily collections',
           style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 6),
         pw.Text(
-          'Day: $txDay · Generated: $dateStr',
+          'Day: $activityDay · Generated: $dateStr',
           style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
         ),
         pw.SizedBox(height: 14),
@@ -85,38 +81,43 @@ Future<Uint8List> buildDailySavingsReportPdf({
         ),
         pw.SizedBox(height: 6),
         pw.Text(
-          'Active customers: ${data['activeCustomers'] ?? 0} · '
-          'Active wallets: ${data['activeWallets'] ?? 0} · '
-          'Saved wallets: ${data['savedWalletCount'] ?? 0} · '
-          'Pending wallets: ${data['pendingWalletCount'] ?? 0}',
+          'Customers: ${data['distinctCustomerCount'] ?? 0} · '
+          'Wallets: ${data['distinctWalletCount'] ?? 0} · '
+          'Payments: ${data['paymentCount'] ?? 0}',
           style: const pw.TextStyle(fontSize: 10),
         ),
         pw.Text(
-          'Total saved: ${MoneyEtb.formatCents(_toInt(data['totalSavedCents']))} · '
-          'Progress: ${data['progressPct'] ?? 0}%',
-          style: const pw.TextStyle(fontSize: 10),
+          'Total collected: ${MoneyEtb.formatCents(_toInt(data['totalCollectedCents']))}',
+          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 16),
         pw.Text(
-          'Saved today (${saved.length})',
+          'Payments (${lines.length})',
           style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 6),
-        if (saved.isEmpty)
+        if (lines.isEmpty)
           pw.Text(
-            'No wallets recorded for this day.',
+            'Nothing recorded for this day.',
             style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
           )
         else
           pw.TableHelper.fromTextArray(
             context: context,
-            headers: const ['Customer', 'Company', 'Wallet', 'Amount'],
-            data: saved
+            headers: const [
+              'Customer',
+              'Company',
+              'Wallet',
+              'Saving day',
+              'Amount',
+            ],
+            data: lines
                 .map(
                   (r) => [
                     '${r['customerName'] ?? ''}',
                     _companyLine('${r['companyName'] ?? ''}'),
                     '${r['walletLabel'] ?? ''}',
+                    '${r['coveredTxDay'] ?? '—'}',
                     MoneyEtb.formatCents(_toInt(r['amountCents'])),
                   ],
                 )
@@ -125,38 +126,7 @@ Future<Uint8List> buildDailySavingsReportPdf({
             cellStyle: const pw.TextStyle(fontSize: 8),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: {3: pw.Alignment.centerRight},
-          ),
-        pw.SizedBox(height: 16),
-        pw.Text(
-          'Pending (${pending.length})',
-          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
-        ),
-        pw.SizedBox(height: 6),
-        if (pending.isEmpty)
-          pw.Text(
-            'All active wallets have a saving recorded for this day.',
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-          )
-        else
-          pw.TableHelper.fromTextArray(
-            context: context,
-            headers: const ['Customer', 'Company', 'Wallet', 'Daily target'],
-            data: pending
-                .map(
-                  (r) => [
-                    '${r['customerName'] ?? ''}',
-                    _companyLine('${r['companyName'] ?? ''}'),
-                    '${r['walletLabel'] ?? ''}',
-                    MoneyEtb.formatCents(_toInt(r['dailyTargetCents'])),
-                  ],
-                )
-                .toList(),
-            headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-            cellStyle: const pw.TextStyle(fontSize: 8),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
-            cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: {3: pw.Alignment.centerRight},
+            cellAlignments: {4: pw.Alignment.centerRight},
           ),
       ],
     ),
@@ -185,7 +155,7 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
       margin: const pw.EdgeInsets.all(40),
       build: (context) => [
         pw.Text(
-          'Monthly savings report',
+          'Monthly overview',
           style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 6),
@@ -195,7 +165,7 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
         ),
         pw.SizedBox(height: 14),
         pw.Text(
-          'Total saved: ${MoneyEtb.formatCents(_toInt(data['totalSavedCents']))}',
+          'Total: ${MoneyEtb.formatCents(_toInt(data['totalSavedCents']))}',
           style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 4),
@@ -206,13 +176,17 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
         pw.SizedBox(height: 16),
         if (daily.isEmpty)
           pw.Text(
-            'No daily savings recorded in this month.',
+            'No data for this month.',
             style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
           )
         else
           pw.TableHelper.fromTextArray(
             context: context,
-            headers: const ['Date', 'Total saved', 'Wallets saved'],
+            headers: const [
+              'Day',
+              'Total',
+              'Wallets',
+            ],
             data: daily
                 .map(
                   (r) => [

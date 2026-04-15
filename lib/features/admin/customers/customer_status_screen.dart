@@ -59,9 +59,9 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
       case WalletStatusFilter.active:
         return 'Active';
       case WalletStatusFilter.frozen:
-        return 'Frozen';
+        return 'Frozen (System)';
       case WalletStatusFilter.closed:
-        return 'Closed';
+        return 'Closed (Admin)';
       case WalletStatusFilter.unknown:
         return 'Unknown';
       default:
@@ -161,10 +161,9 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
-              'Chips pick customers who have at least one wallet in that state. '
-              'Each row shows that wallet’s real status from the server. '
-              'Unknown means a wallet has missing/invalid status in payload data. '
-              'Use All to see every wallet; pull to refresh after status changes.',
+              'Wallet status is the source of truth for operations. '
+              'Frozen is system-managed; Closed is admin-managed. '
+              'Both are blocked for daily saving/deposit actions.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -354,22 +353,6 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
                                               context,
                                             ).textTheme.bodySmall,
                                           ),
-                                          if (c.status !=
-                                              CustomerLifecycleStatus.active) ...[
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Account: ${CustomerLifecycleStatus.displayLabel(c.status)}',
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .labelSmall
-                                                  ?.copyWith(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .error,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                            ),
-                                          ],
                                         ],
                                       ),
                                     ),
@@ -571,7 +554,7 @@ class _WalletRow extends ConsumerWidget {
   List<(String, String)> _actionsForStatus(String status) {
     switch (status.toUpperCase()) {
       case WalletStatusFilter.active:
-        return [('FROZEN', 'Freeze'), ('CLOSED', 'Close')];
+        return [('CLOSED', 'Close')];
       case WalletStatusFilter.frozen:
         return [('ACTIVE', 'Activate'), ('CLOSED', 'Close')];
       case WalletStatusFilter.closed:
@@ -615,9 +598,9 @@ String _walletStatusDisplay(String status) {
     case WalletStatusFilter.active:
       return 'Active';
     case WalletStatusFilter.frozen:
-      return 'Frozen';
+      return 'Frozen (System)';
     case WalletStatusFilter.closed:
-      return 'Closed';
+      return 'Closed (Admin)';
     case 'UNKNOWN':
       return 'Unknown';
     default:

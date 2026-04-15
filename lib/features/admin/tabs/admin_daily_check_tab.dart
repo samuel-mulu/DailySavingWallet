@@ -8,6 +8,7 @@ import '../../../core/routing/routes.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../core/ui/empty_state.dart';
 import '../../../core/ui/filter_count_chip.dart';
+import '../../../core/ui/group_colors.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/wallet/models.dart';
@@ -162,7 +163,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
         : (wallets.isEmpty
               ? '${customer.companyName} • No wallet'
               : '${customer.companyName} • ${wallets.first.label} • ${MoneyEtb.formatCents(wallets.first.balanceCents)}');
-    final groupAccentColor = _parseHexColor(
+    final groupAccentColor = groupColorFromHex(
       customer.group?.colorHex,
       fallback: colorScheme.onSurfaceVariant,
     );
@@ -560,9 +561,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                   value: createdLabel,
                 ),
                 _CustomerDetailLine(
-                  icon: Icons.verified_user_outlined,
-                  label: 'Status',
-                  value: CustomerLifecycleStatus.displayLabel(customer.status),
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: 'Wallet status',
+                  value:
+                      '${wallets.where((w) => w.status.toUpperCase() == 'ACTIVE').length} active • '
+                      '${wallets.where((w) => w.status.toUpperCase() == 'FROZEN').length} frozen • '
+                      '${wallets.where((w) => w.status.toUpperCase() == 'CLOSED').length} closed',
                 ),
                 const SizedBox(height: 18),
                 SizedBox(
@@ -1147,7 +1151,15 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         .where((w) => w.status.toUpperCase() == 'ACTIVE')
                         .toList(growable: false),
                 };
-                final customers = _sortedCustomers(listState.items);
+                final customers = _sortedCustomers(
+                  listState.items
+                      .where(
+                        (c) =>
+                            (activeWalletsMap[c.customerId] ?? const <CustomerWallet>[])
+                                .isNotEmpty,
+                      )
+                      .toList(growable: false),
+                );
                 final customerWalletSummaries = <String, _DailyWalletSummary>{
                   for (final customer in customers)
                     customer.customerId: _summarizeWallets(
@@ -1192,10 +1204,10 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         : Icons.playlist_add_circle_outlined,
                     title: hasSearch
                         ? 'No customers found'
-                        : 'No customers to check today',
+                        : 'No active wallets to check today',
                     message: hasSearch
                         ? 'Try a different search term or clear the filter.'
-                        : 'Create a customer first, then daily savings and deposits will appear here.',
+                        : 'All visible wallets are frozen/closed or no active wallet is available.',
                     action: FilledButton.icon(
                       onPressed: () async {
                         if (hasSearch) {
@@ -1389,7 +1401,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
       final key = customer.group?.id ?? _unassignedGroupKey;
       byKey.putIfAbsent(key, () => <Customer>[]).add(customer);
       byTitle[key] = customer.group?.name ?? 'Not assigned';
-      byColorHex[key] = customer.group?.colorHex ?? '#6B7280';
+      byColorHex[key] = customer.group?.colorHex ?? unassignedGroupColorHex;
     }
 
     final keys = byKey.keys.toList()
@@ -1410,7 +1422,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
           (key) => _DailyCustomerGroupSection(
             key: key,
             title: byTitle[key]!,
-            colorHex: byColorHex[key] ?? '#6B7280',
+            colorHex: byColorHex[key] ?? unassignedGroupColorHex,
             customers: byKey[key]!,
             isUngrouped: key == _unassignedGroupKey,
           ),
@@ -1569,13 +1581,6 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   }
 }
 
-Color _parseHexColor(String? colorHex, {required Color fallback}) {
-  final clean = (colorHex ?? '').trim().replaceFirst('#', '');
-  final value = int.tryParse(clean, radix: 16);
-  if (value == null || clean.length != 6) return fallback;
-  return Color(0xFF000000 | value);
-}
-
 enum AlphabetSortOrder { az, za }
 
 enum DailyCheckViewStyle { sorted, grouped }
@@ -1622,7 +1627,10 @@ class _DailyGroupSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final accentColor = _parseHexColor(colorHex, fallback: colorScheme.primary);
+    final accentColor = groupColorFromHex(
+      colorHex,
+      fallback: colorScheme.primary,
+    );
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),

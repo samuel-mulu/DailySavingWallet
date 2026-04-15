@@ -25,13 +25,10 @@ class TransactionTile extends StatelessWidget {
 
     // Use txDate (business date) with fallback to createdAt (audit timestamp)
     final displayDate = tx.displayDate;
+    final mode = calendarMode ?? CalendarMode.gregorian;
     final dateStr = displayDate == null
         ? ''
-        : formatDateTime(
-            displayDate,
-            calendarMode ?? CalendarMode.gregorian,
-            locale: 'am',
-          );
+        : formatInstantDate(displayDate, mode, locale: 'am');
 
     return ListTile(
       leading: CircleAvatar(
@@ -74,7 +71,7 @@ class TransactionTile extends StatelessWidget {
       onTap: () => showModalBottomSheet(
         context: context,
         showDragHandle: true,
-        builder: (_) => TransactionDetailsSheet(tx: tx),
+        builder: (_) => TransactionDetailsSheet(tx: tx, calendarMode: mode),
       ),
     );
   }
