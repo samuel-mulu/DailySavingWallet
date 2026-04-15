@@ -705,7 +705,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
           builder: (sheetContext, setSheetState) {
             Future<void> pickImage(CustomerMediaSlot slot) async {
               try {
-                final selected = await _imagePickerService.pickImage(slot);
+                final selected = await _imagePickerService.pickImageFromGallery(slot);
                 if (selected == null) return;
                 setSheetState(() {
                   selectedImages[slot] = selected;

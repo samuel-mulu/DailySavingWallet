@@ -16,9 +16,20 @@ class CustomerImagePickerService {
 
   final ImagePicker _picker;
 
-  Future<SelectedCustomerImage?> pickImage(CustomerMediaSlot slot) async {
+  Future<SelectedCustomerImage?> pickImageFromGallery(CustomerMediaSlot slot) {
+    return _pickImage(slot, ImageSource.gallery);
+  }
+
+  Future<SelectedCustomerImage?> captureFromCamera(CustomerMediaSlot slot) {
+    return _pickImage(slot, ImageSource.camera);
+  }
+
+  Future<SelectedCustomerImage?> _pickImage(
+    CustomerMediaSlot slot,
+    ImageSource source,
+  ) async {
     final file = await _picker.pickImage(
-      source: ImageSource.gallery,
+      source: source,
       imageQuality: 85,
       maxWidth: 1600,
       maxHeight: 1600,

@@ -133,7 +133,7 @@ class _CustomerMediaInputTile extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: busy ? null : () => onPickImage?.call(slot),
                   icon: const Icon(Icons.photo_library_outlined),
-                  label: Text(selectedImage == null ? 'Choose Image' : 'Replace'),
+                  label: Text(selectedImage == null ? 'Add Image' : 'Replace Image'),
                 ),
               ),
               const SizedBox(width: 12),

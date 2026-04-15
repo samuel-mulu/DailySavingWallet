@@ -390,8 +390,14 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
   }
 
   Future<void> _pickImage(CustomerMediaSlot slot) async {
+    final source = await _showImageSourcePicker();
+    if (source == null || !mounted) return;
+
     try {
-      final selected = await _imagePickerService.pickImage(slot);
+      final selected = switch (source) {
+        _ImageSourceChoice.camera => await _imagePickerService.captureFromCamera(slot),
+        _ImageSourceChoice.gallery => await _imagePickerService.pickImageFromGallery(slot),
+      };
       if (selected == null || !mounted) return;
       setState(() {
         _selectedImages[slot] = selected;
@@ -402,8 +408,37 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
       setState(() => _mediaError = e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _mediaError = 'Could not select image: $e');
+      setState(
+        () => _mediaError = source == _ImageSourceChoice.camera
+            ? 'Could not capture image. Please allow camera permission and try again.'
+            : 'Could not select image: $e',
+      );
     }
+  }
+
+  Future<_ImageSourceChoice?> _showImageSourcePicker() {
+    return showModalBottomSheet<_ImageSourceChoice>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.of(ctx).pop(_ImageSourceChoice.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.of(ctx).pop(_ImageSourceChoice.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   void _removeImage(CustomerMediaSlot slot) {
@@ -500,3 +535,5 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
     );
   }
 }
+
+enum _ImageSourceChoice { camera, gallery }
