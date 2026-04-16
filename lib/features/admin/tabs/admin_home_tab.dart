@@ -50,6 +50,20 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
   late Future<List<Customer>> _customersWithSavingFuture;
   late Future<List<Customer>> _customersWithCreditFuture;
   late Future<List<Customer>> _customersWithFlatFuture;
+  bool _logoutLoading = false;
+
+  Future<void> _logout() async {
+    if (_logoutLoading) return;
+    setState(() => _logoutLoading = true);
+    try {
+      await ref.read(authClientProvider).signOut();
+      if (mounted) {
+        AppRoutes.goToAuthGate(context);
+      }
+    } finally {
+      if (mounted) setState(() => _logoutLoading = false);
+    }
+  }
 
   Future<WalletTotals> _resolveWalletTotals() async {
     if (widget.loadWalletTotals != null) {
@@ -105,12 +119,8 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
               title: 'Admin Dashboard',
               subtitle: 'Welcome back',
               userName: name,
-              onLogout: () async {
-                await ref.read(authClientProvider).signOut();
-                if (context.mounted) {
-                  AppRoutes.goToAuthGate(context);
-                }
-              },
+              onLogout: _logout,
+              logoutLoading: _logoutLoading,
             );
           },
         ),

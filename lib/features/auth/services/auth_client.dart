@@ -5,12 +5,17 @@ import '../../../data/api/auth_api.dart';
 abstract class AuthClient {
   Stream<String?> authUidChanges();
 
-  Future<void> signInWithEmailAndPassword({
-    required String email,
+  Future<void> signInWithPhoneAndPassword({
+    required String phone,
     required String password,
   });
 
   Future<void> sendPasswordResetEmail({required String email});
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  });
 
   Future<void> signOut();
 }
@@ -47,11 +52,11 @@ class NodeAuthClient implements AuthClient {
   }
 
   @override
-  Future<void> signInWithEmailAndPassword({
-    required String email,
+  Future<void> signInWithPhoneAndPassword({
+    required String phone,
     required String password,
   }) async {
-    await _authApi.login(email: email, password: password);
+    await _authApi.login(phone: phone, password: password);
     final me = await _authApi.fetchMe();
     _updates.add(me.userId.isEmpty ? null : me.userId);
   }
@@ -59,6 +64,17 @@ class NodeAuthClient implements AuthClient {
   @override
   Future<void> sendPasswordResetEmail({required String email}) async {
     await _authApi.requestPasswordReset(email: email);
+  }
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _authApi.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
   }
 
   @override

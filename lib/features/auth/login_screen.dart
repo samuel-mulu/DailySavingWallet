@@ -25,14 +25,15 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _email = TextEditingController();
+  final _phone = TextEditingController();
   final _pass = TextEditingController();
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
 
   @override
   void dispose() {
-    _email.dispose();
+    _phone.dispose();
     _pass.dispose();
     super.dispose();
   }
@@ -46,8 +47,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       await ref
           .read(authClientProvider)
-          .signInWithEmailAndPassword(
-            email: _email.text.trim(),
+          .signInWithPhoneAndPassword(
+            phone: _phone.text.trim(),
             password: _pass.text,
           );
     } on BackendApiException catch (e) {
@@ -60,7 +61,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _sendPasswordReset() async {
-    final email = _email.text.trim();
+    final emailController = TextEditingController();
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Password'),
+          content: TextField(
+            controller: emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email',
+              hintText: 'Enter account email',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(emailController.text.trim()),
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
+    emailController.dispose();
+    if (!mounted || email == null) {
+      return;
+    }
+
     final validationMessage = LoginScreen.validateForgotPasswordEmail(email);
     if (validationMessage != null) {
       ScaffoldMessenger.of(
@@ -218,12 +250,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                                 const SizedBox(height: 28),
                                 TextField(
-                                  controller: _email,
-                                  keyboardType: TextInputType.emailAddress,
+                                  controller: _phone,
+                                  keyboardType: TextInputType.phone,
                                   decoration: const InputDecoration(
-                                    labelText: 'Email',
-                                    hintText: 'Enter your email',
-                                    prefixIcon: Icon(Icons.email_outlined),
+                                    labelText: 'Phone Number',
+                                    hintText: 'Enter your phone number',
+                                    prefixIcon: Icon(Icons.phone_outlined),
                                     hintStyle: TextStyle(
                                       color: Color(0xFFD1D5DB),
                                     ),
@@ -236,15 +268,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 const SizedBox(height: 16),
                                 TextField(
                                   controller: _pass,
-                                  obscureText: true,
-                                  decoration: const InputDecoration(
+                                  obscureText: _obscurePassword,
+                                  decoration: InputDecoration(
                                     labelText: 'Password',
                                     hintText: 'Enter your password',
-                                    prefixIcon: Icon(Icons.lock_outline),
-                                    hintStyle: TextStyle(
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _obscurePassword
+                                            ? Icons.visibility_off_outlined
+                                            : Icons.visibility_outlined,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
+                                      },
+                                    ),
+                                    hintStyle: const TextStyle(
                                       color: Color(0xFFD1D5DB),
                                     ),
-                                    contentPadding: EdgeInsets.symmetric(
+                                    contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 14,
                                     ),

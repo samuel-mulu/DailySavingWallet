@@ -1,13 +1,14 @@
 import '../../../data/customers/customer_model.dart';
+import '../../wallet/wallet_status_utils.dart';
 
 abstract final class WalletStatusFilter {
-  static const String all = 'ALL';
-  static const String active = 'ACTIVE';
-  static const String frozen = 'FROZEN';
-  static const String closed = 'CLOSED';
-  static const String unknown = 'UNKNOWN';
+  static const String all = WalletStatusValues.all;
+  static const String active = WalletStatusValues.active;
+  static const String frozen = WalletStatusValues.frozen;
+  static const String closed = WalletStatusValues.closed;
+  static const String unknown = WalletStatusValues.unknown;
 
-  static const List<String> allValues = [all, active, frozen, closed, unknown];
+  static const List<String> allValues = WalletStatusValues.allFilters;
 }
 
 class CustomerStatusListState {

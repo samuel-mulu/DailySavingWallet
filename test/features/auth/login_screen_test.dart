@@ -38,6 +38,8 @@ void main() {
 
     await tester.tap(find.text('Forgot Password? Click here'));
     await tester.pump();
+    await tester.tap(find.text('Send'));
+    await tester.pump();
 
     expect(find.text('Enter your email first.'), findsOneWidget);
     expect(fakeAuthClient.lastResetEmail, isNull);

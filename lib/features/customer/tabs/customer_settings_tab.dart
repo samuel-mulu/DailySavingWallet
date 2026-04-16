@@ -19,7 +19,21 @@ class _CustomerSettingsTabState extends ConsumerState<CustomerSettingsTab> {
   final _lock = AppLockService();
   bool? _bioEnabled;
   bool _savingBio = false;
+  bool _logoutLoading = false;
   String? _bioError;
+  Future<void> _logout() async {
+    if (_logoutLoading) return;
+    setState(() => _logoutLoading = true);
+    try {
+      await ref.read(authClientProvider).signOut();
+      if (mounted) {
+        AppRoutes.goToAuthGate(context);
+      }
+    } finally {
+      if (mounted) setState(() => _logoutLoading = false);
+    }
+  }
+
 
   CalendarModeService? _calendarService;
 
@@ -107,12 +121,14 @@ class _CustomerSettingsTabState extends ConsumerState<CustomerSettingsTab> {
                     ListTile(
                       leading: const Icon(Icons.logout),
                       title: const Text('Logout'),
-                      onTap: () async {
-                        await ref.read(authClientProvider).signOut();
-                        if (context.mounted) {
-                          AppRoutes.goToAuthGate(context);
-                        }
-                      },
+                      trailing: _logoutLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : null,
+                      onTap: _logoutLoading ? null : _logout,
                     ),
                   ],
                 ),

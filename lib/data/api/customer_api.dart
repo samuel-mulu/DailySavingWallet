@@ -289,4 +289,16 @@ class CustomerApi {
     final w = asJsonMap(data['wallet'], fieldName: 'wallet');
     return CustomerWallet.fromBackendMap(w);
   }
+
+  Future<void> resetCustomerPassword({
+    required String customerId,
+    required String newPassword,
+  }) async {
+    await _client.postJson(
+      '/customers/$customerId/reset-password',
+      body: {
+        'newPassword': newPassword,
+      },
+    );
+  }
 }

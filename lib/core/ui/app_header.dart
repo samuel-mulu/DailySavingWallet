@@ -13,7 +13,8 @@ class AppHeader extends StatelessWidget {
   final String? subtitle;
   final String? userName;
   final bool showLogout;
-  final VoidCallback? onLogout;
+  final Future<void> Function()? onLogout;
+  final bool logoutLoading;
   final List<Widget>? actions;
 
   const AppHeader({
@@ -23,6 +24,7 @@ class AppHeader extends StatelessWidget {
     this.userName,
     this.showLogout = true,
     this.onLogout,
+    this.logoutLoading = false,
     this.actions,
   });
 
@@ -129,8 +131,14 @@ class AppHeader extends StatelessWidget {
           if (actions != null) ...actions!,
           if (showLogout)
             IconButton(
-              onPressed: onLogout,
-              icon: const Icon(Icons.logout_rounded),
+              onPressed: logoutLoading || onLogout == null ? null : () => onLogout!.call(),
+              icon: logoutLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.logout_rounded),
               tooltip: 'Logout',
               style: IconButton.styleFrom(foregroundColor: AppBrand.textMuted),
             ),

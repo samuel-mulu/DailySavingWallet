@@ -254,4 +254,14 @@ class CustomerRepo {
       idempotencyKey: _uuid.v4(),
     );
   }
+
+  Future<void> resetCustomerPassword({
+    required String customerId,
+    required String newPassword,
+  }) {
+    return _customerApi.resetCustomerPassword(
+      customerId: customerId,
+      newPassword: newPassword,
+    );
+  }
 }

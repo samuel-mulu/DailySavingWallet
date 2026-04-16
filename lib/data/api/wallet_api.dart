@@ -1,3 +1,4 @@
+import '../customers/customer_model.dart';
 import '../wallet/models.dart';
 import '../wallet/recorded_daily_days_month.dart';
 import 'api_client.dart';
@@ -47,10 +48,128 @@ class DailyWalletCounts {
   });
 }
 
+class DailyCheckSummary {
+  final int customerCount;
+  final int savedCustomerCount;
+  final int notSavedCustomerCount;
+  final int activeWalletCount;
+  final int savedWalletCount;
+  final int pendingWalletCount;
+
+  const DailyCheckSummary({
+    required this.customerCount,
+    required this.savedCustomerCount,
+    required this.notSavedCustomerCount,
+    required this.activeWalletCount,
+    required this.savedWalletCount,
+    required this.pendingWalletCount,
+  });
+
+  static DailyCheckSummary fromBackendMap(Map<String, dynamic> json) {
+    return DailyCheckSummary(
+      customerCount: _toInt(json['customerCount']),
+      savedCustomerCount: _toInt(json['savedCustomerCount']),
+      notSavedCustomerCount: _toInt(json['notSavedCustomerCount']),
+      activeWalletCount: _toInt(json['activeWalletCount']),
+      savedWalletCount: _toInt(json['savedWalletCount']),
+      pendingWalletCount: _toInt(json['pendingWalletCount']),
+    );
+  }
+}
+
+class DailyCheckRow {
+  final Customer customer;
+  final List<CustomerWallet> wallets;
+  final int totalWalletCount;
+  final int savedWalletCount;
+  final int pendingWalletCount;
+  final bool hasSaved;
+  final bool hasPending;
+  final Set<String> savedWalletIds;
+
+  const DailyCheckRow({
+    required this.customer,
+    required this.wallets,
+    required this.totalWalletCount,
+    required this.savedWalletCount,
+    required this.pendingWalletCount,
+    required this.hasSaved,
+    required this.hasPending,
+    required this.savedWalletIds,
+  });
+
+  static DailyCheckRow fromBackendMap(Map<String, dynamic> json) {
+    final customer = Customer.fromBackendMap(
+      asJsonMap(json['customer'], fieldName: 'customer'),
+    );
+    final wallets = asJsonList(json['wallets'], fieldName: 'wallets')
+        .map((item) => CustomerWallet.fromBackendMap(asJsonMap(item)))
+        .toList(growable: false);
+    final summary = asJsonMap(json['summary'], fieldName: 'summary');
+    final savedWalletIds = asJsonList(json['wallets'], fieldName: 'wallets')
+        .map((item) => asJsonMap(item))
+        .where((wallet) => wallet['isSavedForTxDay'] == true)
+        .map((wallet) => (wallet['walletId'] as String?) ?? '')
+        .where((walletId) => walletId.isNotEmpty)
+        .toSet();
+
+    return DailyCheckRow(
+      customer: customer,
+      wallets: wallets,
+      totalWalletCount: _toInt(summary['totalWalletCount']),
+      savedWalletCount: _toInt(summary['savedWalletCount']),
+      pendingWalletCount: _toInt(summary['pendingWalletCount']),
+      hasSaved: summary['hasSaved'] == true,
+      hasPending: summary['hasPending'] == true,
+      savedWalletIds: savedWalletIds,
+    );
+  }
+}
+
+class DailyCheckPage {
+  final String txDay;
+  final DailyCheckSummary summary;
+  final List<DailyCheckRow> rows;
+  final String? nextCursor;
+  final bool hasMore;
+
+  const DailyCheckPage({
+    required this.txDay,
+    required this.summary,
+    required this.rows,
+    required this.nextCursor,
+    required this.hasMore,
+  });
+}
+
+class WalletStatusPolicy {
+  final int autoFreezeAfterDays;
+  const WalletStatusPolicy({required this.autoFreezeAfterDays});
+}
+
 class WalletApi {
   final ApiClient _client;
 
   WalletApi({ApiClient? client}) : _client = client ?? ApiClient();
+
+  Future<WalletStatusPolicy> fetchWalletStatusPolicy() async {
+    final data = await _client.getJson('/wallet/status-policy');
+    return WalletStatusPolicy(
+      autoFreezeAfterDays: _toInt(data['autoFreezeAfterDays']),
+    );
+  }
+
+  Future<WalletStatusPolicy> updateWalletStatusPolicy({
+    required int autoFreezeAfterDays,
+  }) async {
+    final data = await _client.patchJson(
+      '/wallet/status-policy',
+      body: {'autoFreezeAfterDays': autoFreezeAfterDays},
+    );
+    return WalletStatusPolicy(
+      autoFreezeAfterDays: _toInt(data['autoFreezeAfterDays']),
+    );
+  }
 
   Future<WalletSnapshot?> fetchWallet(
     String customerId, {
@@ -194,6 +313,72 @@ class WalletApi {
     );
     final raw = asJsonList(data['walletIds'], fieldName: 'walletIds');
     return raw.map((e) => '$e').toSet();
+  }
+
+  Future<Map<String, List<CustomerWallet>>> fetchWalletsForCustomers(
+    List<String> customerIds,
+  ) async {
+    if (customerIds.isEmpty) {
+      return const <String, List<CustomerWallet>>{};
+    }
+    final data = await _client.postJson(
+      '/wallet/bulk/customer-wallets',
+      body: {'customerIds': customerIds},
+    );
+    final items = asJsonList(data['items'], fieldName: 'items');
+    final out = <String, List<CustomerWallet>>{};
+    for (final item in items) {
+      final row = asJsonMap(item, fieldName: 'item');
+      final customerId = (row['customerId'] as String?) ?? '';
+      if (customerId.isEmpty) {
+        continue;
+      }
+      final walletsRaw = asJsonList(row['wallets'], fieldName: 'wallets');
+      out[customerId] = walletsRaw
+          .map((wallet) => CustomerWallet.fromBackendMap(asJsonMap(wallet)))
+          .toList(growable: false);
+    }
+    return out;
+  }
+
+  Future<DailyCheckPage> fetchDailyCheckPage({
+    required String txDay,
+    String? search,
+    String? groupId,
+    String filter = 'all',
+    int limit = 50,
+    String? cursor,
+  }) async {
+    final data = await _client.getJson(
+      '/wallet/daily-check',
+      queryParameters: {
+        'txDay': txDay,
+        'filter': filter,
+        'limit': '$limit',
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        if (groupId != null && groupId.trim().isNotEmpty) 'groupId': groupId.trim(),
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      },
+    );
+
+    final summary = DailyCheckSummary.fromBackendMap(
+      asJsonMap(data['summary'], fieldName: 'summary'),
+    );
+    final rows = asJsonList(data['rows'], fieldName: 'rows')
+        .map((item) => DailyCheckRow.fromBackendMap(asJsonMap(item)))
+        .toList(growable: false);
+    final pageInfo = asJsonMap(data['pageInfo'], fieldName: 'pageInfo');
+    final next = pageInfo['nextCursor'];
+    final nextCursor = next is String && next.isNotEmpty ? next : null;
+    final hasMore = pageInfo['hasMore'] == true;
+
+    return DailyCheckPage(
+      txDay: (data['txDay'] as String?) ?? txDay,
+      summary: summary,
+      rows: rows,
+      nextCursor: nextCursor,
+      hasMore: hasMore,
+    );
   }
 
   Future<RecordedDailyDaysMonth> fetchRecordedDailyPaymentDaysByMonth({

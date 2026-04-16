@@ -14,6 +14,7 @@ import '../../../data/wallet/models.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../data/repository_providers.dart';
 import '../../wallet/wallet_providers.dart';
+import '../../wallet/wallet_status_utils.dart';
 import '../../wallet/widgets/transaction_tile.dart';
 import '../../wallet/withdraw_request_screen.dart';
 
@@ -29,6 +30,20 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
   String? _lastCustomerId;
   List<CustomerWallet> _wallets = const [];
   String? _selectedWalletId;
+  bool _logoutLoading = false;
+
+  Future<void> _logout() async {
+    if (_logoutLoading) return;
+    setState(() => _logoutLoading = true);
+    try {
+      await ref.read(authClientProvider).signOut();
+      if (mounted) {
+        AppRoutes.goToAuthGate(context);
+      }
+    } finally {
+      if (mounted) setState(() => _logoutLoading = false);
+    }
+  }
 
   @override
   void initState() {
@@ -125,12 +140,8 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                         title: 'My Wallet',
                         subtitle: 'Welcome back',
                         userName: name,
-                        onLogout: () async {
-                          await ref.read(authClientProvider).signOut();
-                          if (context.mounted) {
-                            AppRoutes.goToAuthGate(context);
-                          }
-                        },
+                        onLogout: _logout,
+                        logoutLoading: _logoutLoading,
                       );
                     },
                   ),
@@ -192,12 +203,8 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                       title: 'My Wallet',
                       subtitle: 'Welcome back',
                       userName: name,
-                      onLogout: () async {
-                        await ref.read(authClientProvider).signOut();
-                        if (context.mounted) {
-                          AppRoutes.goToAuthGate(context);
-                        }
-                      },
+                      onLogout: _logout,
+                      logoutLoading: _logoutLoading,
                     );
                   },
                 ),
@@ -327,7 +334,7 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
         break;
       }
     }
-    return selected != null && selected.status != 'active';
+    return selected != null && !walletAllowsMoneyMovement(selected.status);
   }
 }
 
@@ -429,6 +436,26 @@ class BalanceCard extends ConsumerStatefulWidget {
 
 class _BalanceCardState extends ConsumerState<BalanceCard> {
   bool _hideBalance = true;
+
+  Future<void> _showExpandedBalance(int balanceCents) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Wallet Balance'),
+        content: SelectableText(
+          MoneyEtb.formatCents(balanceCents),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -612,43 +639,61 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                               width: 1,
                             ),
                           ),
-                          child: GestureDetector(
-                            onTap: () =>
-                                setState(() => _hideBalance = !_hideBalance),
-                            behavior: HitTestBehavior.opaque,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      _hideBalance
-                                          ? '••••••'
-                                          : MoneyEtb.formatCents(
-                                              balance,
-                                            ).replaceAll('ETB ', ''),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: -0.5,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Flexible(
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(10),
+                                      onTap: _hideBalance
+                                          ? null
+                                          : () => _showExpandedBalance(balance),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 2,
+                                        ),
+                                        child: Text(
+                                          _hideBalance
+                                              ? '••••••'
+                                              : MoneyEtb.formatCents(
+                                                  balance,
+                                                ).replaceAll('ETB ', ''),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 40,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: -0.5,
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(width: 12),
-                                    Icon(
+                                  ),
+                                  const SizedBox(width: 12),
+                                  IconButton(
+                                    tooltip: _hideBalance
+                                        ? 'Show balance'
+                                        : 'Hide balance',
+                                    onPressed: () =>
+                                        setState(() => _hideBalance = !_hideBalance),
+                                    icon: Icon(
                                       _hideBalance
                                           ? Icons.visibility_off_rounded
                                           : Icons.visibility_rounded,
                                       color: Colors.white.withOpacity(0.8),
                                       size: 24,
                                     ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),

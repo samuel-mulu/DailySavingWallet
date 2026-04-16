@@ -12,27 +12,19 @@ import '../../../core/ui/group_colors.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/wallet/models.dart';
-import '../../customers/customer_list_notifier.dart';
 import '../../data/repository_providers.dart';
+import '../../wallet/wallet_status_utils.dart';
 import '../../wallet/wallet_providers.dart';
 import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
 import '../customers/customer_detail_screen.dart';
 import '../customers/widgets/customer_profile_avatar.dart';
-
-bool _walletAllowsMoneyMovement(String walletStatus) {
-  return walletStatus.toUpperCase() == 'ACTIVE';
-}
 
 void _showWalletActionBlockedSnack(
   BuildContext context,
   CustomerWallet wallet,
 ) {
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        'Wallet is ${wallet.status.toUpperCase()}. Resolve wallet status before recording money.',
-      ),
-    ),
+    SnackBar(content: Text(walletActionBlockedMessage(wallet.status))),
   );
 }
 
@@ -63,7 +55,6 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   late DateTime _selectedDate;
-  Timer? _searchDebounce;
   _DailyCheckFilter _dailyFilter = _DailyCheckFilter.all;
   final Set<String> _expandedCustomerIds = <String>{};
   final Set<String> _expandedGroupKeys = <String>{};
@@ -83,7 +74,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     _localViewStyle = widget.viewStyle;
     _selectedDate = widget.selectedDate;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(customerListNotifierProvider.notifier).loadInitial();
+      ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+            txDay: _txDay(_selectedDate),
+            search: _searchQuery.trim(),
+            filter: _dailyFilterApiValue(),
+          );
     });
   }
 
@@ -105,13 +100,33 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
 
   @override
   void dispose() {
-    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _applySearch() {
+    final value = _searchCtrl.text.trim();
+    setState(() => _searchQuery = value);
+    return ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+          txDay: _txDay(_selectedDate),
+          search: value,
+          filter: _dailyFilterApiValue(),
+        );
+  }
+
   String _txDay(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _dailyFilterApiValue() {
+    switch (_dailyFilter) {
+      case _DailyCheckFilter.all:
+        return 'all';
+      case _DailyCheckFilter.saved:
+        return 'saved';
+      case _DailyCheckFilter.notSaved:
+        return 'notSaved';
+    }
+  }
 
   bool _isCustomerExpanded(String customerId) {
     return _expandedCustomerIds.contains(customerId);
@@ -564,9 +579,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                   icon: Icons.account_balance_wallet_outlined,
                   label: 'Wallet status',
                   value:
-                      '${wallets.where((w) => w.status.toUpperCase() == 'ACTIVE').length} active • '
-                      '${wallets.where((w) => w.status.toUpperCase() == 'FROZEN').length} frozen • '
-                      '${wallets.where((w) => w.status.toUpperCase() == 'CLOSED').length} closed',
+                      '${wallets.where((w) => normalizeWalletStatus(w.status) == WalletStatusValues.active).length} active • '
+                      '${wallets.where((w) => normalizeWalletStatus(w.status) == WalletStatusValues.frozen).length} frozen • '
+                      '${wallets.where((w) => normalizeWalletStatus(w.status) == WalletStatusValues.closed).length} closed',
                 ),
                 const SizedBox(height: 18),
                 SizedBox(
@@ -602,7 +617,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     String type,
     DateTime initialDate,
   ) {
-    if (!_walletAllowsMoneyMovement(wallet.status)) {
+    if (!walletAllowsMoneyMovement(wallet.status)) {
       _showWalletActionBlockedSnack(context, wallet);
       return;
     }
@@ -627,12 +642,13 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
             }
           },
           onRefreshAfterBatch: () {
-            ref.invalidate(walletsForCustomerListProvider);
-            ref.invalidate(dailyWalletCountsProvider(_txDay(_selectedDate)));
             unawaited(
-              ref
-                  .read(customerListNotifierProvider.notifier)
-                  .refresh(force: true),
+              ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                    txDay: _txDay(_selectedDate),
+                    search: _searchQuery.trim(),
+                    filter: _dailyFilterApiValue(),
+                    force: true,
+                  ),
             );
           },
           onOpenCustomerDetail: () {
@@ -822,15 +838,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                 final d = modalSelectedDate;
                                 final td =
                                     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-                                ref
-                                    .read(
-                                      recordedDailyWalletIdsProvider(
-                                        td,
-                                      ).notifier,
-                                    )
-                                    .addRecordedLocally(wallet.id);
-                                ref.invalidate(dailyWalletCountsProvider(td));
-                                ref.invalidate(walletsForCustomerListProvider);
+                                await ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: td,
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                      force: true,
+                                    );
                                 AppLogger.debug(
                                   '[AdminDailyCheckTab] Daily saving recorded '
                                   'for wallet=${wallet.id}',
@@ -862,18 +875,17 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                       )
                                       .applyWallet(snapDep);
                                 }
-                                ref.invalidate(walletsForCustomerListProvider);
+                                await ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: _txDay(_selectedDate),
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                      force: true,
+                                    );
                                 AppLogger.debug(
                                   '[AdminDailyCheckTab] Deposit recorded '
                                   'for wallet=${wallet.id}',
                                 );
                               }
-
-                              unawaited(
-                                ref
-                                    .read(customerListNotifierProvider.notifier)
-                                    .refresh(force: true),
-                              );
 
                               if (!sheetContext.mounted) return;
                               Navigator.of(sheetContext).pop();
@@ -1043,10 +1055,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
               onDateChanged: (date) {
                 setState(() => _selectedDate = date);
                 widget.onSelectedDateChanged?.call(date);
-                ref
-                    .read(recordedDailyWalletIdsProvider(_txDay(date)).notifier)
-                    .ensureFresh(force: true);
-                ref.invalidate(dailyWalletCountsProvider(_txDay(date)));
+                ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                      txDay: _txDay(date),
+                      search: _searchQuery.trim(),
+                      filter: _dailyFilterApiValue(),
+                      force: true,
+                    );
               },
             ),
           ),
@@ -1056,18 +1070,18 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _searchCtrl,
+              textInputAction: TextInputAction.search,
               onChanged: (v) {
                 setState(() => _searchQuery = v);
-                _searchDebounce?.cancel();
-                _searchDebounce = Timer(const Duration(milliseconds: 350), () {
-                  ref
-                      .read(customerListNotifierProvider.notifier)
-                      .loadInitial(search: v.trim());
-                });
               },
+              onSubmitted: (_) => _applySearch(),
               decoration: InputDecoration(
                 hintText: 'Search by name, phone, or company...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: IconButton(
+                  tooltip: 'Search',
+                  icon: const Icon(Icons.search),
+                  onPressed: _applySearch,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -1081,9 +1095,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
-                          ref
-                              .read(customerListNotifierProvider.notifier)
-                              .loadInitial(search: '');
+                          ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                txDay: _txDay(_selectedDate),
+                                search: '',
+                                filter: _dailyFilterApiValue(),
+                              );
                         },
                       )
                     : null,
@@ -1096,104 +1112,43 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
             child: Builder(
               builder: (context) {
                 final txDay = _txDay(_selectedDate);
-                final recordedStale = ref.watch(
-                  recordedDailyWalletIdsProvider(txDay),
-                );
-                final listState = ref.watch(customerListNotifierProvider);
-                final walletsMapAsync = ref.watch(
-                  walletsForCustomerListProvider,
-                );
+                final pageState = ref.watch(dailyCheckPageNotifierProvider);
 
-                if (recordedStale.error != null &&
-                    (recordedStale.data == null ||
-                        recordedStale.data!.isEmpty)) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: SelectableText(
-                        'Error loading checkmarks:\n\n${recordedStale.error}',
-                      ),
-                    ),
-                  );
+                if (pageState.error != null && pageState.rows.isEmpty) {
+                  return Center(child: Text('Error: ${pageState.error}'));
                 }
 
-                if (listState.error != null && listState.items.isEmpty) {
-                  return Center(child: Text('Error: ${listState.error}'));
-                }
-
-                if (listState.items.isEmpty &&
-                    listState.isRefreshing &&
-                    !listState.loadingMore) {
+                if (pageState.rows.isEmpty && pageState.isRefreshing) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (walletsMapAsync.isLoading && !walletsMapAsync.hasValue) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (walletsMapAsync.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: SelectableText(
-                        'Error loading wallets:\n\n${walletsMapAsync.error}',
-                      ),
-                    ),
-                  );
-                }
-
-                final recordedWalletIds =
-                    recordedStale.data ?? const <String>{};
-                final walletsMap = walletsMapAsync.value ?? {};
-                final activeWalletsMap = <String, List<CustomerWallet>>{
-                  for (final entry in walletsMap.entries)
-                    entry.key: entry.value
-                        .where((w) => w.status.toUpperCase() == 'ACTIVE')
-                        .toList(growable: false),
-                };
                 final customers = _sortedCustomers(
-                  listState.items
-                      .where(
-                        (c) =>
-                            (activeWalletsMap[c.customerId] ?? const <CustomerWallet>[])
-                                .isNotEmpty,
-                      )
-                      .toList(growable: false),
+                  pageState.rows.map((row) => row.customer).toList(growable: false),
                 );
+                final customerRowsById = {
+                  for (final row in pageState.rows) row.customer.customerId: row,
+                };
+                final activeWalletsMap = <String, List<CustomerWallet>>{
+                  for (final row in pageState.rows) row.customer.customerId: row.wallets,
+                };
+                final recordedWalletIds = pageState.rows
+                    .expand((row) => row.savedWalletIds)
+                    .toSet();
                 final customerWalletSummaries = <String, _DailyWalletSummary>{
                   for (final customer in customers)
-                    customer.customerId: _summarizeWallets(
-                      activeWalletsMap[customer.customerId] ??
-                          const <CustomerWallet>[],
-                      recordedWalletIds,
+                    customer.customerId: _DailyWalletSummary(
+                      totalWalletCount:
+                          customerRowsById[customer.customerId]?.totalWalletCount ?? 0,
+                      savedWalletCount:
+                          customerRowsById[customer.customerId]?.savedWalletCount ?? 0,
+                      pendingWalletCount:
+                          customerRowsById[customer.customerId]?.pendingWalletCount ?? 0,
                     ),
                 };
-                bool customerHasSavedWallet(Customer c) {
-                  return (customerWalletSummaries[c.customerId]
-                              ?.savedWalletCount ??
-                          0) >
-                      0;
-                }
-
-                bool customerHasPendingWallet(Customer c) {
-                  return (customerWalletSummaries[c.customerId]
-                              ?.pendingWalletCount ??
-                          0) >
-                      0;
-                }
-
-                final visibleWalletSummary = _combineWalletSummaries(
-                  customerWalletSummaries.values,
-                );
-                final totalWalletCount = visibleWalletSummary.totalWalletCount;
-                final savedWalletCount = visibleWalletSummary.savedWalletCount;
-                final notSavedWalletCount =
-                    visibleWalletSummary.pendingWalletCount;
-                final filteredCustomers = _applyDailyFilter(
-                  customers,
-                  customerHasSavedWallet: customerHasSavedWallet,
-                  customerHasPendingWallet: customerHasPendingWallet,
-                );
+                final totalWalletCount = pageState.summary.activeWalletCount;
+                final savedWalletCount = pageState.summary.savedWalletCount;
+                final notSavedWalletCount = pageState.summary.pendingWalletCount;
+                final filteredCustomers = customers;
 
                 if (customers.isEmpty) {
                   final hasSearch = _searchQuery.isNotEmpty;
@@ -1213,9 +1168,11 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                         if (hasSearch) {
                           _searchCtrl.clear();
                           setState(() => _searchQuery = '');
-                          ref
-                              .read(customerListNotifierProvider.notifier)
-                              .loadInitial(search: '');
+                          ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                txDay: txDay,
+                                search: '',
+                                filter: _dailyFilterApiValue(),
+                              );
                           return;
                         }
 
@@ -1244,9 +1201,14 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               count: totalWalletCount,
                               selected: _dailyFilter == _DailyCheckFilter.all,
                               icon: Icons.account_balance_wallet_outlined,
-                              onTap: () => setState(
-                                () => _dailyFilter = _DailyCheckFilter.all,
-                              ),
+                              onTap: () {
+                                setState(() => _dailyFilter = _DailyCheckFilter.all);
+                                ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: txDay,
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                    );
+                              },
                             ),
                             const SizedBox(width: 8),
                             FilterCountChip(
@@ -1254,9 +1216,14 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               count: savedWalletCount,
                               selected: _dailyFilter == _DailyCheckFilter.saved,
                               icon: Icons.check_circle_outline,
-                              onTap: () => setState(
-                                () => _dailyFilter = _DailyCheckFilter.saved,
-                              ),
+                              onTap: () {
+                                setState(() => _dailyFilter = _DailyCheckFilter.saved);
+                                ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: txDay,
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                    );
+                              },
                             ),
                             const SizedBox(width: 8),
                             FilterCountChip(
@@ -1265,9 +1232,14 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                               selected:
                                   _dailyFilter == _DailyCheckFilter.notSaved,
                               icon: Icons.pending_actions_outlined,
-                              onTap: () => setState(
-                                () => _dailyFilter = _DailyCheckFilter.notSaved,
-                              ),
+                              onTap: () {
+                                setState(() => _dailyFilter = _DailyCheckFilter.notSaved);
+                                ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: txDay,
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                    );
+                              },
                             ),
                           ],
                         ),
@@ -1286,28 +1258,25 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                   ? 'Switch back to All active wallets to see every listed customer for the selected date.'
                                   : 'Everyone in the current list is fully saved for the selected date.',
                               action: FilledButton.icon(
-                                onPressed: () => setState(
-                                  () => _dailyFilter = _DailyCheckFilter.all,
-                                ),
+                                onPressed: () {
+                                  setState(() => _dailyFilter = _DailyCheckFilter.all);
+                                  ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                        txDay: txDay,
+                                        search: _searchQuery.trim(),
+                                        filter: _dailyFilterApiValue(),
+                                      );
+                                },
                                 icon: const Icon(Icons.filter_alt_off),
                                 label: const Text('Show All'),
                               ),
                             )
                           : RefreshIndicator(
                               onRefresh: () async {
-                                await ref
-                                    .read(
-                                      recordedDailyWalletIdsProvider(
-                                        txDay,
-                                      ).notifier,
-                                    )
-                                    .refresh(force: true);
-                                await ref
-                                    .read(customerListNotifierProvider.notifier)
-                                    .refresh(force: true);
-                                ref.invalidate(walletsForCustomerListProvider);
-                                ref.invalidate(
-                                  dailyWalletCountsProvider(txDay),
+                                await ref.read(dailyCheckPageNotifierProvider.notifier).loadInitial(
+                                      txDay: txDay,
+                                      search: _searchQuery.trim(),
+                                      filter: _dailyFilterApiValue(),
+                                      force: true,
                                 );
                               },
                               child: ListView(
@@ -1315,8 +1284,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                   horizontal: 16,
                                 ),
                                 children: [
-                                  if (listState.isRefreshing ||
-                                      recordedStale.isRefreshing)
+                                  if (pageState.isRefreshing)
                                     const Padding(
                                       padding: EdgeInsets.only(bottom: 8),
                                       child: LinearProgressIndicator(
@@ -1339,9 +1307,9 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                           recordedWalletIds,
                                           customerWalletSummaries,
                                         )),
-                                  if (listState.nextCursor != null) ...[
+                                  if (pageState.nextCursor != null) ...[
                                     const Divider(height: 1),
-                                    if (listState.loadingMore)
+                                    if (pageState.loadingMore)
                                       const Padding(
                                         padding: EdgeInsets.all(16),
                                         child: Center(
@@ -1352,10 +1320,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                       Center(
                                         child: TextButton(
                                           onPressed: () => ref
-                                              .read(
-                                                customerListNotifierProvider
-                                                    .notifier,
-                                              )
+                                              .read(dailyCheckPageNotifierProvider.notifier)
                                               .loadMore(),
                                           child: const Text('Load more'),
                                         ),
@@ -1528,21 +1493,6 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
     }
 
     return children;
-  }
-
-  List<Customer> _applyDailyFilter(
-    List<Customer> customers, {
-    required bool Function(Customer) customerHasSavedWallet,
-    required bool Function(Customer) customerHasPendingWallet,
-  }) {
-    switch (_dailyFilter) {
-      case _DailyCheckFilter.all:
-        return customers;
-      case _DailyCheckFilter.saved:
-        return customers.where(customerHasSavedWallet).toList();
-      case _DailyCheckFilter.notSaved:
-        return customers.where(customerHasPendingWallet).toList();
-    }
   }
 
   _DailyWalletSummary _summarizeWallets(

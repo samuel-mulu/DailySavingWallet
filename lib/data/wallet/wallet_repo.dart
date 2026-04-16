@@ -106,6 +106,24 @@ class WalletRepo {
     return _walletApi.fetchRecordedDailyPaymentWalletIds(txDay);
   }
 
+  Future<Map<String, List<CustomerWallet>>> fetchWalletsForCustomers(
+    List<String> customerIds,
+  ) {
+    return _walletApi.fetchWalletsForCustomers(customerIds);
+  }
+
+  Future<WalletStatusPolicy> fetchWalletStatusPolicy() {
+    return _walletApi.fetchWalletStatusPolicy();
+  }
+
+  Future<WalletStatusPolicy> updateWalletStatusPolicy({
+    required int autoFreezeAfterDays,
+  }) {
+    return _walletApi.updateWalletStatusPolicy(
+      autoFreezeAfterDays: autoFreezeAfterDays,
+    );
+  }
+
   Future<RecordedDailyDaysMonth> fetchRecordedDailyPaymentDaysByMonth({
     required String customerId,
     required String walletId,
@@ -124,6 +142,24 @@ class WalletRepo {
 
   Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) {
     return _walletApi.fetchDailyWalletCounts(txDay);
+  }
+
+  Future<DailyCheckPage> fetchDailyCheckPage({
+    required String txDay,
+    String? search,
+    String? groupId,
+    String filter = 'all',
+    int limit = 50,
+    String? cursor,
+  }) {
+    return _walletApi.fetchDailyCheckPage(
+      txDay: txDay,
+      search: search,
+      groupId: groupId,
+      filter: filter,
+      limit: limit,
+      cursor: cursor,
+    );
   }
 
   Future<void> requestWithdraw({

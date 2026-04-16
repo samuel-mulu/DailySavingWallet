@@ -37,13 +37,13 @@ class AuthApi {
       _client = client ?? ApiClient(sessionStore: sessionStore);
 
   Future<BackendAuthSession> login({
-    required String email,
+    required String phone,
     required String password,
   }) async {
     final data = await _client.postJson(
       '/auth/login',
       requiresAuth: false,
-      body: {'email': email.trim(), 'password': password},
+      body: {'phone': phone.trim(), 'password': password},
     );
 
     final accessToken = (data['accessToken'] as String?) ?? '';
@@ -77,6 +77,19 @@ class AuthApi {
       '/auth/reset-password',
       requiresAuth: false,
       body: {'token': token, 'newPassword': newPassword},
+    );
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _client.postJson(
+      '/auth/change-password',
+      body: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
     );
   }
 

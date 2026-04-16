@@ -24,14 +24,8 @@ final dailyWalletCountsProvider = FutureProvider.autoDispose
 final walletsForCustomerListProvider =
     FutureProvider.autoDispose<Map<String, List<CustomerWallet>>>((ref) async {
       final items = ref.watch(customerListNotifierProvider).items;
-      final repo = ref.read(customerRepoProvider);
-      final entries = await Future.wait(
-        items.map((c) async {
-          final wallets = await repo.fetchCustomerWallets(c.customerId);
-          return MapEntry(c.customerId, wallets);
-        }),
-      );
-      return Map.fromEntries(entries);
+      final customerIds = items.map((c) => c.customerId).toList(growable: false);
+      return ref.read(walletRepoProvider).fetchWalletsForCustomers(customerIds);
     });
 
 /// Wallet balance for a customer + optional wallet (null walletId = primary).
@@ -250,3 +244,188 @@ final recordedDailyDaysByMonthProvider = FutureProvider.autoDispose
         month: key.month,
       );
     });
+
+class DailyCheckPageState {
+  final List<DailyCheckRow> rows;
+  final DailyCheckSummary summary;
+  final String? nextCursor;
+  final bool isRefreshing;
+  final bool loadingMore;
+  final Object? error;
+  final String txDay;
+  final String search;
+  final String? groupId;
+  final String filter;
+
+  const DailyCheckPageState({
+    required this.rows,
+    required this.summary,
+    required this.nextCursor,
+    required this.isRefreshing,
+    required this.loadingMore,
+    required this.error,
+    required this.txDay,
+    required this.search,
+    required this.groupId,
+    required this.filter,
+  });
+
+  factory DailyCheckPageState.initial() {
+    return const DailyCheckPageState(
+      rows: [],
+      summary: DailyCheckSummary(
+        customerCount: 0,
+        savedCustomerCount: 0,
+        notSavedCustomerCount: 0,
+        activeWalletCount: 0,
+        savedWalletCount: 0,
+        pendingWalletCount: 0,
+      ),
+      nextCursor: null,
+      isRefreshing: false,
+      loadingMore: false,
+      error: null,
+      txDay: '',
+      search: '',
+      groupId: null,
+      filter: 'all',
+    );
+  }
+}
+
+final dailyCheckPageNotifierProvider = NotifierProvider.autoDispose<
+    DailyCheckPageNotifier,
+    DailyCheckPageState
+>(DailyCheckPageNotifier.new);
+
+class DailyCheckPageNotifier extends AutoDisposeNotifier<DailyCheckPageState> {
+  @override
+  DailyCheckPageState build() => DailyCheckPageState.initial();
+
+  Future<void> loadInitial({
+    required String txDay,
+    String search = '',
+    String? groupId,
+    String filter = 'all',
+    bool force = false,
+  }) async {
+    final prev = state;
+    final sameScope = prev.txDay == txDay &&
+        prev.search == search &&
+        prev.groupId == groupId &&
+        prev.filter == filter;
+    if (!force && sameScope && prev.rows.isNotEmpty && prev.error == null) {
+      return;
+    }
+
+    state = DailyCheckPageState(
+      rows: sameScope ? prev.rows : const [],
+      summary: sameScope ? prev.summary : DailyCheckPageState.initial().summary,
+      nextCursor: null,
+      isRefreshing: true,
+      loadingMore: false,
+      error: null,
+      txDay: txDay,
+      search: search,
+      groupId: groupId,
+      filter: filter,
+    );
+
+    final loadingState = state;
+    try {
+      final page = await ref.read(walletRepoProvider).fetchDailyCheckPage(
+            txDay: txDay,
+            search: search.isEmpty ? null : search,
+            groupId: groupId,
+            filter: filter,
+            limit: 50,
+          );
+      state = DailyCheckPageState(
+        rows: page.rows,
+        summary: page.summary,
+        nextCursor: page.nextCursor,
+        isRefreshing: false,
+        loadingMore: false,
+        error: null,
+        txDay: txDay,
+        search: search,
+        groupId: groupId,
+        filter: filter,
+      );
+    } catch (error) {
+      state = DailyCheckPageState(
+        rows: loadingState.rows,
+        summary: loadingState.summary,
+        nextCursor: loadingState.nextCursor,
+        isRefreshing: false,
+        loadingMore: false,
+        error: error,
+        txDay: txDay,
+        search: search,
+        groupId: groupId,
+        filter: filter,
+      );
+    }
+  }
+
+  Future<void> loadMore() async {
+    final cur = state;
+    final cursor = cur.nextCursor;
+    if (cur.loadingMore ||
+        cur.isRefreshing ||
+        cursor == null ||
+        cursor.isEmpty ||
+        cur.txDay.isEmpty) {
+      return;
+    }
+
+    state = DailyCheckPageState(
+      rows: cur.rows,
+      summary: cur.summary,
+      nextCursor: cur.nextCursor,
+      isRefreshing: false,
+      loadingMore: true,
+      error: null,
+      txDay: cur.txDay,
+      search: cur.search,
+      groupId: cur.groupId,
+      filter: cur.filter,
+    );
+
+    try {
+      final page = await ref.read(walletRepoProvider).fetchDailyCheckPage(
+            txDay: cur.txDay,
+            search: cur.search.isEmpty ? null : cur.search,
+            groupId: cur.groupId,
+            filter: cur.filter,
+            limit: 50,
+            cursor: cursor,
+          );
+      state = DailyCheckPageState(
+        rows: [...cur.rows, ...page.rows],
+        summary: page.summary,
+        nextCursor: page.nextCursor,
+        isRefreshing: false,
+        loadingMore: false,
+        error: null,
+        txDay: cur.txDay,
+        search: cur.search,
+        groupId: cur.groupId,
+        filter: cur.filter,
+      );
+    } catch (error) {
+      state = DailyCheckPageState(
+        rows: cur.rows,
+        summary: cur.summary,
+        nextCursor: cur.nextCursor,
+        isRefreshing: false,
+        loadingMore: false,
+        error: error,
+        txDay: cur.txDay,
+        search: cur.search,
+        groupId: cur.groupId,
+        filter: cur.filter,
+      );
+    }
+  }
+}

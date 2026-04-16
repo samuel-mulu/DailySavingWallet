@@ -11,35 +11,16 @@ import '../../../data/customers/customer_model.dart';
 import '../../../data/wallet/models.dart';
 import '../../data/repository_providers.dart';
 import '../../wallet/wallet_providers.dart';
+import '../../wallet/wallet_status_utils.dart';
+import '../../wallet/widgets/wallet_status_widgets.dart';
 import '../../wallet/widgets/transaction_tile.dart';
 import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
 import 'widgets/customer_profile_avatar.dart';
 import 'widgets/customer_media_form_section.dart';
 import 'widgets/customer_media_gallery_card.dart';
 
-String _walletOperationalLabel(String status) {
-  switch (status.toUpperCase()) {
-    case 'ACTIVE':
-      return 'Active';
-    case 'FROZEN':
-      return 'Frozen (System)';
-    case 'CLOSED':
-      return 'Closed (Admin)';
-    case 'UNKNOWN':
-      return 'Unknown';
-    default:
-      return status;
-  }
-}
-
-bool _walletAllowsMoneyMovement(String walletStatus) {
-  return walletStatus.toUpperCase() == 'ACTIVE';
-}
-
 void _showMoneyActionBlockedSnack(BuildContext context, CustomerWallet wallet) {
-  final msg = _walletAllowsMoneyMovement(wallet.status)
-      ? 'This action is not available.'
-      : 'Wallet is ${_walletOperationalLabel(wallet.status)}. Resolve wallet status before recording money.';
+  final msg = walletActionBlockedMessage(wallet.status);
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 }
 
@@ -399,7 +380,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                             ),
                                       ),
                                     ),
-                                    _WalletStatusPill(status: wallet.status),
+                                    WalletStatusPill(status: wallet.status),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
@@ -535,6 +516,18 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                         },
                       ),
                     const SizedBox(height: 16),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.lock_reset),
+                        title: const Text('Reset Customer Password'),
+                        subtitle: const Text(
+                          'Set a new password and force re-login on all devices',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _showResetPasswordModal(context, customer),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Quick Actions
                     Text(
@@ -555,7 +548,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                     final w = _wallets.firstWhere(
                                       (x) => x.id == _selectedWalletId,
                                     );
-                                    if (!_walletAllowsMoneyMovement(w.status)) {
+                                    if (!walletAllowsMoneyMovement(w.status)) {
                                       _showMoneyActionBlockedSnack(context, w);
                                       return;
                                     }
@@ -583,7 +576,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                     final w = _wallets.firstWhere(
                                       (x) => x.id == _selectedWalletId,
                                     );
-                                    if (!_walletAllowsMoneyMovement(w.status)) {
+                                    if (!walletAllowsMoneyMovement(w.status)) {
                                       _showMoneyActionBlockedSnack(context, w);
                                       return;
                                     }
@@ -613,7 +606,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 final w = _wallets.firstWhere(
                                   (x) => x.id == _selectedWalletId,
                                 );
-                                if (!_walletAllowsMoneyMovement(w.status)) {
+                                if (!walletAllowsMoneyMovement(w.status)) {
                                   _showMoneyActionBlockedSnack(context, w);
                                   return;
                                 }
@@ -1072,6 +1065,174 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     );
   }
 
+  void _showResetPasswordModal(BuildContext context, Customer customer) {
+    final formKey = GlobalKey<FormState>();
+    final passwordCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        var isSaving = false;
+        var obscurePassword = true;
+        var obscureConfirm = true;
+
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            Future<void> submit() async {
+              final form = formKey.currentState;
+              if (form == null || !form.validate()) return;
+              setSheetState(() => isSaving = true);
+              try {
+                await ref.read(customerRepoProvider).resetCustomerPassword(
+                      customerId: customer.customerId,
+                      newPassword: passwordCtrl.text,
+                    );
+                if (!sheetContext.mounted) return;
+                Navigator.of(sheetContext).pop();
+                passwordCtrl.clear();
+                confirmCtrl.clear();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Password reset successful. Customer was logged out from all active sessions.',
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (!sheetContext.mounted) return;
+                setSheetState(() => isSaving = false);
+                ScaffoldMessenger.of(
+                  sheetContext,
+                ).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 8,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              ),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Reset Password',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Customer: ${customer.fullName}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: passwordCtrl,
+                          obscureText: obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: 'New Password',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                              ),
+                              onPressed: () => setSheetState(
+                                () => obscurePassword = !obscurePassword,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            final v = value ?? "";
+                            if (v.length < 8) {
+                              return 'Password must be at least 8 characters';
+                            }
+                            if (v.length > 128) {
+                              return 'Password is too long';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: confirmCtrl,
+                          obscureText: obscureConfirm,
+                          decoration: InputDecoration(
+                            labelText: 'Confirm Password',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                obscureConfirm
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                              ),
+                              onPressed: () => setSheetState(
+                                () => obscureConfirm = !obscureConfirm,
+                              ),
+                            ),
+                          ),
+                          validator: (value) {
+                            if ((value ?? "") != passwordCtrl.text) {
+                              return 'Passwords do not match';
+                            }
+                            return null;
+                          },
+                          onFieldSubmitted: (_) {
+                            if (!isSaving) submit();
+                          },
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: isSaving
+                                    ? null
+                                    : () => Navigator.of(sheetContext).pop(),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: isSaving ? null : submit,
+                                child: isSaving
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Reset Password'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _showAddWalletModal(BuildContext context) async {
     final nameCtrl = TextEditingController();
     final codeCtrl = TextEditingController();
@@ -1228,7 +1389,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     CustomerWallet wallet,
     String type,
   ) {
-    if (!_walletAllowsMoneyMovement(wallet.status)) {
+    if (!walletAllowsMoneyMovement(wallet.status)) {
       _showMoneyActionBlockedSnack(context, wallet);
       return;
     }
@@ -1400,7 +1561,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     Customer customer,
     CustomerWallet wallet,
   ) {
-    if (!_walletAllowsMoneyMovement(wallet.status)) {
+    if (!walletAllowsMoneyMovement(wallet.status)) {
       _showMoneyActionBlockedSnack(context, wallet);
       return;
     }
@@ -1584,45 +1745,6 @@ class _AccountStatusPill extends StatelessWidget {
       child: Text(
         CustomerLifecycleStatus.displayLabel(status),
         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: fg,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
-class _WalletStatusPill extends StatelessWidget {
-  const _WalletStatusPill({required this.status});
-
-  final String status;
-
-  Color _color() {
-    switch (status.toUpperCase()) {
-      case 'ACTIVE':
-        return Colors.green.shade700;
-      case 'FROZEN':
-        return Colors.orange.shade900;
-      case 'CLOSED':
-        return Colors.red.shade800;
-      default:
-        return Colors.blueGrey.shade700;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = _color();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: fg.withValues(alpha: 0.35)),
-        color: fg.withValues(alpha: 0.1),
-      ),
-      child: Text(
-        _walletOperationalLabel(status),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: fg,
           fontWeight: FontWeight.w700,
         ),

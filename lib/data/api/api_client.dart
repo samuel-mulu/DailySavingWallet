@@ -106,6 +106,7 @@ List<dynamic> asJsonList(Object? value, {String fieldName = 'items'}) {
 }
 
 class ApiClient {
+  static const _requestTimeout = Duration(seconds: 30);
   final String _baseUrl;
   final http.Client _httpClient;
   final BackendSessionStore _sessionStore;
@@ -134,7 +135,7 @@ class ApiClient {
       requiresAuth: requiresAuth,
       send: (headers) => _httpClient
           .get(uri, headers: headers)
-          .timeout(const Duration(seconds: 15)),
+          .timeout(_requestTimeout),
     );
   }
 
@@ -153,7 +154,7 @@ class ApiClient {
             headers: {...headers, ...?extraHeaders},
             body: jsonEncode(body ?? const <String, dynamic>{}),
           )
-          .timeout(const Duration(seconds: 15)),
+          .timeout(_requestTimeout),
     );
   }
 
@@ -172,7 +173,7 @@ class ApiClient {
             headers: {...headers, ...?extraHeaders},
             body: jsonEncode(body ?? const <String, dynamic>{}),
           )
-          .timeout(const Duration(seconds: 15)),
+          .timeout(_requestTimeout),
     );
   }
 
@@ -383,7 +384,7 @@ class ApiClient {
           },
           body: jsonEncode({'refreshToken': refreshToken}),
         )
-        .timeout(const Duration(seconds: 15));
+        .timeout(_requestTimeout);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       if (BackendFeatureFlags.enableNodeReadLogging) {

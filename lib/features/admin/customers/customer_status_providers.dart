@@ -27,12 +27,9 @@ final customerStatusWalletsProvider =
     FutureProvider.autoDispose<Map<String, List<CustomerWallet>>>((ref) async {
       final listState = ref.watch(customerStatusListNotifierProvider);
       final customers = listState.items;
-      final repo = ref.read(customerRepoProvider);
-      final entries = await Future.wait(
-        customers.map((c) async {
-          final wallets = await repo.fetchCustomerWallets(c.customerId);
-          return MapEntry(c.customerId, wallets);
-        }),
-      );
-      return Map.fromEntries(entries);
+      if (customers.isEmpty) {
+        return const <String, List<CustomerWallet>>{};
+      }
+      final customerIds = customers.map((c) => c.customerId).toList(growable: false);
+      return ref.read(walletRepoProvider).fetchWalletsForCustomers(customerIds);
     });

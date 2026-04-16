@@ -364,11 +364,31 @@ class _AdminManagement extends StatelessWidget {
   }
 }
 
-class _SuperAdminSettings extends ConsumerWidget {
+class _SuperAdminSettings extends ConsumerStatefulWidget {
   const _SuperAdminSettings();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SuperAdminSettings> createState() => _SuperAdminSettingsState();
+}
+
+class _SuperAdminSettingsState extends ConsumerState<_SuperAdminSettings> {
+  bool _logoutLoading = false;
+
+  Future<void> _logout() async {
+    if (_logoutLoading) return;
+    setState(() => _logoutLoading = true);
+    try {
+      await ref.read(authClientProvider).signOut();
+      if (mounted) {
+        AppRoutes.goToAuthGate(context);
+      }
+    } finally {
+      if (mounted) setState(() => _logoutLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
         const AppHeader(
@@ -387,12 +407,7 @@ class _SuperAdminSettings extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: InkWell(
-                  onTap: () async {
-                    await ref.read(authClientProvider).signOut();
-                    if (context.mounted) {
-                      AppRoutes.goToAuthGate(context);
-                    }
-                  },
+                  onTap: _logoutLoading ? null : _logout,
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -435,6 +450,12 @@ class _SuperAdminSettings extends ConsumerWidget {
                             ],
                           ),
                         ),
+                        if (_logoutLoading)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
                       ],
                     ),
                   ),

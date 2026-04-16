@@ -23,11 +23,17 @@ class FakeAuthClient implements AuthClient {
   }
 
   @override
-  Future<void> signInWithEmailAndPassword({
-    required String email,
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> signInWithPhoneAndPassword({
+    required String phone,
     required String password,
   }) async {
-    lastLoginEmail = email;
+    lastLoginEmail = phone;
     lastLoginPassword = password;
   }
 
