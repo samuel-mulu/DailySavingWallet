@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../../data/api/auth_api.dart';
+import '../../../data/api/api_client.dart';
 
 abstract class AuthClient {
   Stream<String?> authUidChanges();
@@ -30,7 +31,11 @@ class NodeAuthClient implements AuthClient {
 
   Stream<String?> _createSessionStream() {
     return Stream<String?>.multi((emitter) async {
-      emitter.add(await _readUidOrNull());
+      try {
+        emitter.add(await _readUidOrNull());
+      } catch (e, stackTrace) {
+        emitter.addError(e, stackTrace);
+      }
       await for (final uid in _updates.stream) {
         emitter.add(uid);
       }
@@ -46,8 +51,13 @@ class NodeAuthClient implements AuthClient {
     try {
       final me = await _authApi.fetchMe();
       return me.userId.isEmpty ? null : me.userId;
-    } catch (_) {
+    } on BackendAuthUnavailableException {
       return null;
+    } on BackendApiException catch (error) {
+      if (error.statusCode == 401) {
+        return null;
+      }
+      rethrow;
     }
   }
 

@@ -339,7 +339,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                           (w) => DropdownMenuItem(
                                             value: w.id,
                                             child: Text(
-                                              w.label,
+                                              '${w.label} • Target ${MoneyEtb.formatCents(w.dailyTargetCents)}',
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),

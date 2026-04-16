@@ -69,6 +69,67 @@ class _CustomerShellState extends ConsumerState<CustomerShell>
     );
   }
 
+  Future<void> _showCompanyRulesModal() {
+    const ruleItems = <String>[
+      'ዕቁብ ዝኽፈለሉ ግዜ ሰምናዊ ቀዳም ካብ 10፡00-12:00።',
+      'ዋሕስ ኮይኑ ዝፈረመ ናይ ዝተዋሓሰ ሰብ ቀጥተኛ ከፋሊ ዝኸውን ምኻኑ ክፈልጥ አለዎ።',
+      'ናይ ዕቁብተኛ መሰል ሕልው አዩ።',
+      'ቅድሚያ ንዝወስድ ቸክ የዛጋጅው',
+    ];
+
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Company Rules',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              for (var i = 0; i < ruleItems.length; i++) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.check_circle_outline, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        ruleItems[i],
+                        style: Theme.of(sheetContext).textTheme.bodyLarge,
+                      ),
+                    ),
+                  ],
+                ),
+                if (i < ruleItems.length - 1) const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  icon: const Icon(Icons.check),
+                  label: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _onTabSelected(int i) {
     setState(() {
       _index = i;
@@ -135,6 +196,11 @@ class _CustomerShellState extends ConsumerState<CustomerShell>
                       tooltip: 'Reports',
                       icon: const Icon(Icons.assessment_outlined),
                       onPressed: () => _onTabSelected(2),
+                    ),
+                    IconButton(
+                      tooltip: 'Rules',
+                      icon: const Icon(Icons.policy_outlined),
+                      onPressed: _showCompanyRulesModal,
                     ),
                     IconButton(
                       tooltip: 'Settings',

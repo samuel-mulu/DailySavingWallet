@@ -22,6 +22,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
   DateTime _selectedDate = DateTime.now();
   int _dailyReportNonce = 0;
   int _monthlyReportNonce = 0;
+  bool _dailyPdfBusy = false;
+  bool _monthlyPdfBusy = false;
   CalendarModeService? _calendarService;
 
   @override
@@ -37,6 +39,67 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
   String get _month =>
       '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}';
 
+  Future<void> _showCompanyRulesModal(BuildContext context) {
+    const ruleItems = <String>[
+      'ዕቁብ ዝኽፈለሉ ግዜ ሰምናዊ ቀዳም ካብ 10፡00-12:00።',
+      'ዋሕስ ኮይኑ ዝፈረመ ናይ ዝተዋሓሰ ሰብ ቀጥተኛ ከፋሊ ዝኸውን ምኻኑ ክፈልጥ አለዎ።',
+      'ናይ ዕቁብተኛ መሰል ሕልው አዩ።',
+      'ቅድሚያ ንዝወስድ ቸክ የዛጋጅው',
+    ];
+
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Company Rules',
+                style: Theme.of(
+                  sheetContext,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              for (var i = 0; i < ruleItems.length; i++) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Icon(Icons.check_circle_outline, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        ruleItems[i],
+                        style: Theme.of(sheetContext).textTheme.bodyLarge,
+                      ),
+                    ),
+                  ],
+                ),
+                if (i < ruleItems.length - 1) const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  icon: const Icon(Icons.check),
+                  label: const Text('OK'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_calendarService == null) {
@@ -49,6 +112,26 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
           length: 2,
           child: Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Reports',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Company rules',
+                      onPressed: () => _showCompanyRulesModal(context),
+                      icon: const Icon(Icons.policy_outlined),
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: DateSelector(
@@ -111,6 +194,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                                 accentColor: const Color(0xFF10B981),
                                 icon: Icons.calendar_today_outlined,
                                 body: _DailyActivityReportSummary(data: data),
+                                isExporting: _dailyPdfBusy,
                                 onViewDetail: () => _showDailyActivityDetail(
                                   context,
                                   data,
@@ -166,6 +250,7 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                                   dayCount: daily.length,
                                   calendarMode: calendarMode,
                                 ),
+                                isExporting: _monthlyPdfBusy,
                                 onViewDetail: () => _showMonthlyDetail(
                                   context,
                                   data,
@@ -198,6 +283,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
     BuildContext context,
     Map<String, dynamic> data,
   ) async {
+    if (_dailyPdfBusy) return;
+    setState(() => _dailyPdfBusy = true);
     try {
       final bytes = await buildDailySavingsActivityReportPdf(
         data: data,
@@ -206,11 +293,17 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       final day = '${data['activityDay'] ?? _txDay}'.replaceAll('-', '');
       if (!context.mounted) return;
       await Printing.sharePdf(bytes: bytes, filename: 'daily-activity-$day.pdf');
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Daily PDF is ready to download/share.')),
+      );
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not build PDF: $e')),
+        SnackBar(content: Text('Could not download Daily PDF: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _dailyPdfBusy = false);
     }
   }
 
@@ -218,6 +311,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
     BuildContext context,
     Map<String, dynamic> data,
   ) async {
+    if (_monthlyPdfBusy) return;
+    setState(() => _monthlyPdfBusy = true);
     try {
       final bytes = await buildMonthlySavingsReportPdf(
         data: data,
@@ -227,11 +322,17 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       final m = '${data['month'] ?? _month}'.replaceAll('-', '');
       if (!context.mounted) return;
       await Printing.sharePdf(bytes: bytes, filename: 'monthly-overview-$m.pdf');
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Monthly PDF is ready to download/share.')),
+      );
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not build PDF: $e')),
+        SnackBar(content: Text('Could not download Monthly PDF: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _monthlyPdfBusy = false);
     }
   }
 
@@ -272,14 +373,6 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Download PDF',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _exportDailyActivityPdf(sheetContext, data);
-                    },
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
                   ),
                 ],
               ),
@@ -351,14 +444,6 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Download PDF',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _exportMonthlyPdf(sheetContext, data);
-                    },
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
                   ),
                 ],
               ),
@@ -799,6 +884,7 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
           final wallet = (data['wallet'] as Map?) ?? const {};
           final summary = (data['summary'] as Map?) ?? const {};
           final history = (data['history'] as List?) ?? const [];
+          final isProvisioned = wallet['isProvisioned'] != false;
           final balanceCents = _toInt(wallet['balanceCents']);
           final feeRevenueCents = _toInt(summary['feeRevenueCents']);
           final feeEntryCount = _toInt(summary['feeEntryCount']);
@@ -891,6 +977,17 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (!isProvisioned)
+                  Card(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    child: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
+                        'Company wallet is not provisioned yet. Showing safe zero values.',
+                      ),
+                    ),
+                  ),
+                if (!isProvisioned) const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
@@ -1052,6 +1149,7 @@ class _ReportCard extends StatelessWidget {
     required this.body,
     required this.onViewDetail,
     this.onExportPdf,
+    this.isExporting = false,
   });
 
   final String title;
@@ -1060,6 +1158,7 @@ class _ReportCard extends StatelessWidget {
   final Widget body;
   final VoidCallback onViewDetail;
   final VoidCallback? onExportPdf;
+  final bool isExporting;
 
   @override
   Widget build(BuildContext context) {
@@ -1089,24 +1188,33 @@ class _ReportCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (onExportPdf != null)
-                  IconButton(
-                    tooltip: 'Download PDF',
-                    onPressed: onExportPdf,
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                  ),
               ],
             ),
             const SizedBox(height: 14),
             body,
             const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onViewDetail,
-                icon: const Icon(Icons.visibility_outlined),
-                label: const Text('View detail'),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onExportPdf != null)
+                  FilledButton.icon(
+                    onPressed: isExporting ? null : onExportPdf,
+                    icon: isExporting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: Text(isExporting ? 'Downloading...' : 'Download PDF'),
+                  ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: onViewDetail,
+                  icon: const Icon(Icons.visibility_outlined),
+                  label: const Text('View detail'),
+                ),
+              ],
             ),
           ],
         ),

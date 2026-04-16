@@ -21,16 +21,18 @@ List<Map<String, dynamic>> _mapList(Object? value) {
 }
 
 Future<pw.Document> _documentWithNotoFonts() async {
-  final base = await PdfGoogleFonts.notoSansRegular();
-  final bold = await PdfGoogleFonts.notoSansBold();
-  final italic = await PdfGoogleFonts.notoSansItalic();
-  final boldItalic = await PdfGoogleFonts.notoSansBoldItalic();
+  final fallbackItalic = await PdfGoogleFonts.notoSansItalic();
+  final fallbackBoldItalic = await PdfGoogleFonts.notoSansBoldItalic();
+
+  // Ethiopic-capable base font to render Amharic/Tigrinya text in PDFs.
+  final base = await PdfGoogleFonts.notoSansEthiopicRegular();
+  final bold = await PdfGoogleFonts.notoSansEthiopicBold();
   return pw.Document(
     theme: pw.ThemeData.withFont(
       base: base,
       bold: bold,
-      italic: italic,
-      boldItalic: boldItalic,
+      italic: fallbackItalic,
+      boldItalic: fallbackBoldItalic,
     ),
   );
 }
@@ -55,6 +57,7 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
       if (d != 0) return d;
       return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
     });
+  final totalCollected = _toInt(data['totalCollectedCents']);
 
   final dateStr =
       '${generatedAt.year}-${generatedAt.month.toString().padLeft(2, '0')}-${generatedAt.day.toString().padLeft(2, '0')} '
@@ -87,7 +90,7 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
           style: const pw.TextStyle(fontSize: 10),
         ),
         pw.Text(
-          'Total collected: ${MoneyEtb.formatCents(_toInt(data['totalCollectedCents']))}',
+          'Total collected: ${MoneyEtb.formatCents(totalCollected)}',
           style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 16),
@@ -121,7 +124,14 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
                     MoneyEtb.formatCents(_toInt(r['amountCents'])),
                   ],
                 )
-                .toList(),
+                .toList()
+              ..add(<String>[
+                'TOTAL',
+                '',
+                '',
+                '',
+                MoneyEtb.formatCents(totalCollected),
+              ]),
             headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
             cellStyle: const pw.TextStyle(fontSize: 8),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
@@ -144,6 +154,11 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
   final doc = await _documentWithNotoFonts();
   final daily = _mapList(data['daily'])
     ..sort((a, b) => '${a['txDay']}'.compareTo('${b['txDay']}'));
+  final totalSaved = _toInt(data['totalSavedCents']);
+  final totalWalletDays = daily.fold<int>(
+    0,
+    (sum, row) => sum + _toInt(row['savedWalletCount']),
+  );
 
   final dateStr =
       '${generatedAt.year}-${generatedAt.month.toString().padLeft(2, '0')}-${generatedAt.day.toString().padLeft(2, '0')} '
@@ -165,7 +180,7 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
         ),
         pw.SizedBox(height: 14),
         pw.Text(
-          'Total: ${MoneyEtb.formatCents(_toInt(data['totalSavedCents']))}',
+          'Total: ${MoneyEtb.formatCents(totalSaved)}',
           style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 4),
@@ -195,7 +210,12 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
                     '${r['savedWalletCount'] ?? 0}',
                   ],
                 )
-                .toList(),
+                .toList()
+              ..add(<String>[
+                'TOTAL',
+                MoneyEtb.formatCents(totalSaved),
+                '$totalWalletDays',
+              ]),
             headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
             cellStyle: const pw.TextStyle(fontSize: 8),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
