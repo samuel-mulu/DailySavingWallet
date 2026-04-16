@@ -374,6 +374,19 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                       ),
                     ),
                   ),
+                  FilledButton.icon(
+                    onPressed: _dailyPdfBusy
+                        ? null
+                        : () => _exportDailyActivityPdf(sheetContext, data),
+                    icon: _dailyPdfBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: Text(_dailyPdfBusy ? 'Generating...' : 'Generate PDF'),
+                  ),
                 ],
               ),
               Text(
@@ -443,6 +456,21 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _monthlyPdfBusy
+                        ? null
+                        : () => _exportMonthlyPdf(sheetContext, data),
+                    icon: _monthlyPdfBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.picture_as_pdf_outlined),
+                    label: Text(
+                      _monthlyPdfBusy ? 'Generating...' : 'Generate PDF',
                     ),
                   ),
                 ],
@@ -1193,8 +1221,11 @@ class _ReportCard extends StatelessWidget {
             const SizedBox(height: 14),
             body,
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 if (onExportPdf != null)
                   FilledButton.icon(
@@ -1206,9 +1237,8 @@ class _ReportCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.picture_as_pdf_outlined),
-                    label: Text(isExporting ? 'Downloading...' : 'Download PDF'),
+                    label: Text(isExporting ? 'Generating...' : 'Generate PDF'),
                   ),
-                const SizedBox(width: 8),
                 TextButton.icon(
                   onPressed: onViewDetail,
                   icon: const Icon(Icons.visibility_outlined),
