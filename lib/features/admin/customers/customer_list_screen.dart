@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
@@ -26,7 +24,6 @@ class CustomerListScreen extends ConsumerStatefulWidget {
 class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
-  Timer? _debounce;
   _AlphabetSortOrder _sortOrder = _AlphabetSortOrder.az;
   _CustomerBalanceFilter _balanceFilter = _CustomerBalanceFilter.all;
 
@@ -40,9 +37,14 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _applySearch() {
+    final value = _searchCtrl.text.trim();
+    setState(() => _searchQuery = value);
+    return ref.read(customerListNotifierProvider.notifier).loadInitial(search: value);
   }
 
   Future<void> _exportCustomerBalancesPdf(
@@ -158,27 +160,21 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
                     Expanded(
                       child: TextField(
                         controller: _searchCtrl,
-                        onChanged: (value) {
-                          setState(() => _searchQuery = value);
-                          _debounce?.cancel();
-                          _debounce = Timer(
-                            const Duration(milliseconds: 350),
-                            () {
-                              ref
-                                  .read(customerListNotifierProvider.notifier)
-                                  .loadInitial(search: value.trim());
-                            },
-                          );
-                        },
+                        textInputAction: TextInputAction.search,
+                        onChanged: (value) => setState(() => _searchQuery = value),
+                        onSubmitted: (_) => _applySearch(),
                         decoration: InputDecoration(
-                          hintText: 'Search by name, phone, or company',
-                          prefixIcon: const Icon(Icons.search),
+                          hintText: 'Search by name, phone, or company...',
+                          prefixIcon: IconButton(
+                            tooltip: 'Search',
+                            icon: const Icon(Icons.search),
+                            onPressed: _applySearch,
+                          ),
                           filled: true,
                           fillColor: colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.4),
+                              .withValues(alpha: 0.3),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide.none,
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           suffixIcon: hasSearch
                               ? IconButton(

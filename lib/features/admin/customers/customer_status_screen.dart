@@ -28,7 +28,6 @@ class CustomerStatusScreen extends ConsumerStatefulWidget {
 class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
   final _searchCtrl = TextEditingController();
   final _scrollController = ScrollController();
-  Timer? _debounce;
   _AlphabetSortOrder _sortOrder = _AlphabetSortOrder.az;
 
   void _onListScroll() {
@@ -50,12 +49,19 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _searchCtrl.dispose();
     _scrollController
       ..removeListener(_onListScroll)
       ..dispose();
     super.dispose();
+  }
+
+  Future<void> _applySearch() {
+    final value = _searchCtrl.text.trim();
+    final wf = ref.read(customerStatusListNotifierProvider).walletStatusFilter;
+    return ref
+        .read(customerStatusListNotifierProvider.notifier)
+        .loadInitial(search: value, walletStatusFilter: wf);
   }
 
   Future<void> _refreshAll() async {
@@ -158,28 +164,33 @@ class _CustomerStatusScreenState extends ConsumerState<CustomerStatusScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               controller: _searchCtrl,
-              onChanged: (v) {
-                _debounce?.cancel();
-                _debounce = Timer(const Duration(milliseconds: 350), () {
-                  final wf = ref
-                      .read(customerStatusListNotifierProvider)
-                      .walletStatusFilter;
-                  ref
-                      .read(customerStatusListNotifierProvider.notifier)
-                      .loadInitial(search: v.trim(), walletStatusFilter: wf);
-                });
-              },
+              textInputAction: TextInputAction.search,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _applySearch(),
               decoration: InputDecoration(
-                hintText: 'Search by name, phone, or company',
-                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search by name, phone, or company...',
+                prefixIcon: IconButton(
+                  tooltip: 'Search',
+                  icon: const Icon(Icons.search),
+                  onPressed: _applySearch,
+                ),
                 filled: true,
                 fillColor: Theme.of(
                   context,
-                ).colorScheme.surfaceContainerHighest,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
                 ),
+                suffixIcon: _searchCtrl.text.trim().isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          _applySearch();
+                          setState(() {});
+                        },
+                      )
+                    : null,
               ),
             ),
           ),

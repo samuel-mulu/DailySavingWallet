@@ -145,21 +145,24 @@ class CustomerApi {
     required String phone,
     required String companyName,
     required String address,
-    required String email,
     required String password,
     required int dailyTargetCents,
     int creditLimitCents = 0,
     required String idempotencyKey,
   }) async {
+    final trimmedPhone = phone.trim();
+    final normalizedPhone = trimmedPhone.replaceAll(RegExp(r'\D'), '');
+    final generatedLoginEmail = 'cust_${normalizedPhone.isEmpty ? trimmedPhone.hashCode.abs() : normalizedPhone}@phone.local';
     final data = await _client.postJson(
       '/customers',
       extraHeaders: {'Idempotency-Key': idempotencyKey},
       body: {
         'fullName': fullName.trim(),
-        'phone': phone.trim(),
+        'phone': trimmedPhone,
         'companyName': companyName.trim(),
         'address': address.trim(),
-        'email': email.trim(),
+        // Backend still stores a user email, so generate one from phone.
+        'email': generatedLoginEmail,
         'password': password,
         'dailyTargetCents': dailyTargetCents,
         'creditLimitCents': creditLimitCents,
@@ -170,7 +173,8 @@ class CustomerApi {
     return {
       'customerId': customer['id'] as String? ?? '',
       'uid': user['id'] as String? ?? '',
-      'email': user['email'] as String? ?? email,
+      'phone': customer['phone'] as String? ?? trimmedPhone,
+      'email': user['email'] as String? ?? generatedLoginEmail,
     };
   }
 

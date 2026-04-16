@@ -21,7 +21,6 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
   final _phoneCtrl = TextEditingController();
   final _companyNameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _dailyTargetCtrl = TextEditingController();
   final _creditLimitCtrl = TextEditingController(text: '0');
@@ -40,7 +39,6 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
     _phoneCtrl.dispose();
     _companyNameCtrl.dispose();
     _addressCtrl.dispose();
-    _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _dailyTargetCtrl.dispose();
     _creditLimitCtrl.dispose();
@@ -80,7 +78,6 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
         phone: _phoneCtrl.text.trim(),
         companyName: _companyNameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
-        email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
         dailyTargetCents: dailyTargetCents,
         creditLimitCents: creditLimitCents,
@@ -134,7 +131,7 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
         setState(() {
           if (e.code == 'CONFLICT' ||
               e.code == 'BUSINESS_RULE_VIOLATION') {
-            _serverFieldErrors = {'email': e.message};
+            _serverFieldErrors = {'phone': e.message};
             _error = null;
           } else {
             _serverFieldErrors = {};
@@ -258,22 +255,6 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _emailCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Email (for login)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.email),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                      onChanged: (_) => _clearServerField('email'),
-                      validator: (v) => _serverOr('email', () {
-                        if (v == null || v.trim().isEmpty) return 'Required';
-                        if (!v.contains('@')) return 'Invalid email';
-                        return null;
-                      }),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -453,7 +434,7 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
     Map<String, dynamic> result,
     List<String> uploadWarnings,
   ) {
-    final email = result['email'] as String? ?? _emailCtrl.text;
+    final phone = result['phone'] as String? ?? _phoneCtrl.text.trim();
     final customerId = result['customerId'] as String? ?? '';
     
     showDialog(
@@ -467,7 +448,7 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
           children: [
             const Text('Share these credentials with the customer:'),
             const SizedBox(height: 16),
-            SelectableText('Email: $email'),
+            SelectableText('Phone: $phone'),
             const SizedBox(height: 8),
             SelectableText('Password: ${_passwordCtrl.text}'),
             const SizedBox(height: 16),
@@ -512,7 +493,7 @@ class _CreateCustomerScreenState extends State<CreateCustomerScreen> {
           TextButton(
             onPressed: () {
               // Copy to clipboard
-              final credentials = 'Email: $email\nPassword: ${_passwordCtrl.text}';
+              final credentials = 'Phone: $phone\nPassword: ${_passwordCtrl.text}';
               // Note: Clipboard requires flutter/services import
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
