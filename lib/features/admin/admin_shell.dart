@@ -68,26 +68,9 @@ class _AdminShellState extends ConsumerState<AdminShell>
   @override
   Widget build(BuildContext context) {
     final txDay = _txDay(_dailyBadgeDate);
-    final recordedWalletIds =
-        ref.watch(recordedDailyWalletIdsProvider(txDay)).data ??
-        const <String>{};
-    final listItems = ref.watch(customerListNotifierProvider).items;
-    final walletsByCustomer = ref.watch(walletsForCustomerListProvider).valueOrNull;
     final pendingItems =
         ref.watch(pendingWithdrawalsStaleProvider).data ?? const [];
 
-    var pendingDailyCount = 0;
-    if (walletsByCustomer != null) {
-      for (final customer in listItems) {
-        final wallets = walletsByCustomer[customer.customerId] ?? const [];
-        for (final wallet in wallets) {
-          if (wallet.status.toUpperCase() != 'ACTIVE') continue;
-          if (!recordedWalletIds.contains(wallet.id)) {
-            pendingDailyCount += 1;
-          }
-        }
-      }
-    }
     final pendingApprovalCount = pendingItems.length;
 
     final Widget body = switch (_index) {
@@ -272,13 +255,10 @@ class _AdminShellState extends ConsumerState<AdminShell>
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: [
             NavigationDestination(
-              icon: _buildBadgeIcon(
-                count: pendingDailyCount,
-                child: const Icon(Icons.add_circle_outline),
-              ),
-              selectedIcon: _buildBadgeIcon(
-                count: pendingDailyCount,
-                child: const Icon(Icons.add_circle, color: Color(0xFF8B5CF6)),
+              icon: const Icon(Icons.add_circle_outline),
+              selectedIcon: const Icon(
+                Icons.add_circle,
+                color: Color(0xFF8B5CF6),
               ),
               label: 'Daily',
             ),

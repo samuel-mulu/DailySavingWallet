@@ -54,7 +54,7 @@ class TransactionDetailsSheet extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 _row(
-                  'Requested',
+                  'Requested amount',
                   MoneyEtb.formatCents(_toInt(meta['requestedAmountCents'])),
                 ),
                 if (meta['approvedAmountCents'] != null)
@@ -63,12 +63,12 @@ class TransactionDetailsSheet extends StatelessWidget {
                     MoneyEtb.formatCents(_toInt(meta['approvedAmountCents'])),
                   ),
                 _row(
-                  'Fee',
+                  'Fee deducted',
                   MoneyEtb.formatCents(_toInt(meta['approvalFeeCents'])),
                 ),
                 _row(
-                  'Total Debited',
-                  MoneyEtb.formatCents(_toInt(meta['totalDebitCents'])),
+                  'Net payout',
+                  MoneyEtb.formatCents(_toInt(meta['netPayoutCents'])),
                 ),
               ],
               const SizedBox(height: 12),

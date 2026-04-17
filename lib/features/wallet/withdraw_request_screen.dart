@@ -97,7 +97,7 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
 
   Future<WithdrawPreview> _resolvePreview(int amountCents) async {
     final preview = _preview;
-    if (preview != null && preview.amountCents == amountCents) {
+    if (preview != null && preview.requestedAmountCents == amountCents) {
       return preview;
     }
 
@@ -126,11 +126,15 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Amount: ${MoneyEtb.formatCents(preview.amountCents)}'),
+              Text(
+                'Requested amount: ${MoneyEtb.formatCents(preview.requestedAmountCents)}',
+              ),
               const SizedBox(height: 8),
-              Text('Fee: ${MoneyEtb.formatCents(preview.feeCents)}'),
+              Text('Fee deducted: ${MoneyEtb.formatCents(preview.feeCents)}'),
               const SizedBox(height: 8),
-              Text('Total: ${MoneyEtb.formatCents(preview.totalDebitCents)}'),
+              Text(
+                'Net payout: ${MoneyEtb.formatCents(preview.netPayoutCents)}',
+              ),
               const SizedBox(height: 8),
               Text('Reason: $reason'),
             ],
@@ -197,7 +201,7 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Fee uses the exact 1/30 rule. Example: 3000 -> 100.',
+                'Fee uses the exact 1/30 rule and is deducted from requested amount.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
@@ -225,18 +229,18 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
                     ),
                     const SizedBox(height: 10),
                     _PreviewRow(
-                      label: 'Amount',
-                      value: MoneyEtb.formatCents(preview.amountCents),
+                      label: 'Requested amount',
+                      value: MoneyEtb.formatCents(preview.requestedAmountCents),
                     ),
                     const SizedBox(height: 8),
                     _PreviewRow(
-                      label: 'Fee',
+                      label: 'Fee deducted',
                       value: MoneyEtb.formatCents(preview.feeCents),
                     ),
                     const SizedBox(height: 8),
                     _PreviewRow(
-                      label: 'Total',
-                      value: MoneyEtb.formatCents(preview.totalDebitCents),
+                      label: 'Net payout',
+                      value: MoneyEtb.formatCents(preview.netPayoutCents),
                       emphasize: true,
                     ),
                     if (_previewBusy) ...[

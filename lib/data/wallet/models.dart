@@ -289,37 +289,40 @@ class WithdrawPreview {
   static const int _feeDivisor = 30;
   static const int _roundingOffset = _feeDivisor ~/ 2;
 
-  final int amountCents;
+  final int requestedAmountCents;
   final int feeCents;
-  final int totalDebitCents;
+  final int netPayoutCents;
 
   const WithdrawPreview({
-    required this.amountCents,
+    required this.requestedAmountCents,
     required this.feeCents,
-    required this.totalDebitCents,
+    required this.netPayoutCents,
   });
 
   static WithdrawPreview calculate(int amountCents) {
     final feeCents = (amountCents + _roundingOffset) ~/ _feeDivisor;
     return WithdrawPreview(
-      amountCents: amountCents,
+      requestedAmountCents: amountCents,
       feeCents: feeCents,
-      totalDebitCents: amountCents + feeCents,
+      netPayoutCents: amountCents - feeCents,
     );
   }
 
   static WithdrawPreview fromBackendMap(Map<String, dynamic> json) {
-    final amountCents = _toInt(json['amountCents']);
+    final requestedAmountCents = json['requestedAmountCents'] == null
+        ? _toInt(json['amountCents'])
+        : _toInt(json['requestedAmountCents']);
+    final amountCents = requestedAmountCents;
     final fallback = calculate(amountCents);
 
     return WithdrawPreview(
-      amountCents: amountCents,
+      requestedAmountCents: requestedAmountCents,
       feeCents: json['feeCents'] == null
           ? fallback.feeCents
           : _toInt(json['feeCents']),
-      totalDebitCents: json['totalDebitCents'] == null
-          ? fallback.totalDebitCents
-          : _toInt(json['totalDebitCents']),
+      netPayoutCents: json['netPayoutCents'] == null
+          ? fallback.netPayoutCents
+          : _toInt(json['netPayoutCents']),
     );
   }
 }
@@ -330,9 +333,9 @@ class WithdrawRequest {
   final String? walletId;
   final int amountCents;
   final int feeCents;
-  final int totalDebitCents;
+  final int netPayoutCents;
   final int approvalFeeCents;
-  final int approvedTotalDebitCents;
+  final int approvedNetPayoutCents;
   final String reason;
   final String status;
   final String requestedByUid;
@@ -346,9 +349,9 @@ class WithdrawRequest {
     required this.walletId,
     required this.amountCents,
     required this.feeCents,
-    required this.totalDebitCents,
+    required this.netPayoutCents,
     required this.approvalFeeCents,
-    required this.approvedTotalDebitCents,
+    required this.approvedNetPayoutCents,
     required this.reason,
     required this.status,
     required this.requestedByUid,
@@ -358,10 +361,12 @@ class WithdrawRequest {
   });
 
   static WithdrawRequest fromBackendMap(Map<String, dynamic> json) {
-    final amountCents = _toInt(json['amountCents']);
+    final amountCents = json['requestedAmountCents'] == null
+        ? _toInt(json['amountCents'])
+        : _toInt(json['requestedAmountCents']);
     final computedPreview = WithdrawPreview.calculate(amountCents);
     final approvalFeeCents = _toInt(json['approvalFeeCents']);
-    final approvedTotalDebitCents = _toInt(json['approvedTotalDebitCents']);
+    final approvedNetPayoutCents = _toInt(json['approvedNetPayoutCents']);
 
     return WithdrawRequest(
       id: (json['id'] as String?) ?? '',
@@ -373,13 +378,13 @@ class WithdrawRequest {
                 ? computedPreview.feeCents
                 : approvalFeeCents)
           : _toInt(json['feeCents']),
-      totalDebitCents: json['totalDebitCents'] == null
-          ? (json['approvedTotalDebitCents'] == null
-                ? computedPreview.totalDebitCents
-                : approvedTotalDebitCents)
-          : _toInt(json['totalDebitCents']),
+      netPayoutCents: json['netPayoutCents'] == null
+          ? (json['approvedNetPayoutCents'] == null
+                ? computedPreview.netPayoutCents
+                : approvedNetPayoutCents)
+          : _toInt(json['netPayoutCents']),
       approvalFeeCents: approvalFeeCents,
-      approvedTotalDebitCents: approvedTotalDebitCents,
+      approvedNetPayoutCents: approvedNetPayoutCents,
       reason: (json['reason'] as String?) ?? '',
       status: (json['status'] as String?) ?? 'PENDING',
       requestedByUid:
@@ -395,9 +400,9 @@ class WithdrawRequest {
   }
 
   WithdrawPreview get preview => WithdrawPreview(
-    amountCents: amountCents,
+    requestedAmountCents: amountCents,
     feeCents: feeCents,
-    totalDebitCents: totalDebitCents,
+    netPayoutCents: netPayoutCents,
   );
 }
 

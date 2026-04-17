@@ -25,6 +25,7 @@ class CustomerListNotifier extends AutoDisposeNotifier<CustomerListState> {
   Future<void> loadInitial({
     String search = '',
     bool forceNetwork = false,
+    bool loadAll = true,
   }) async {
     final now = DateTime.now();
     final prev = state;
@@ -47,6 +48,7 @@ class CustomerListNotifier extends AutoDisposeNotifier<CustomerListState> {
       error: null,
       lastFetchedAt: prev.lastFetchedAt,
       searchApplied: search,
+      fullyLoaded: false,
     );
     final withRefreshing = state;
     try {
@@ -63,12 +65,28 @@ class CustomerListNotifier extends AutoDisposeNotifier<CustomerListState> {
         error: null,
         lastFetchedAt: DateTime.now(),
         searchApplied: search,
+        fullyLoaded: page.nextCursor == null || page.nextCursor!.isEmpty,
       );
+      if (loadAll) {
+        await loadRemainingPages();
+      }
     } catch (e) {
       state = withRefreshing.copyWith(
         isRefreshing: false,
         error: e,
       );
+    }
+  }
+
+  Future<void> loadRemainingPages() async {
+    while (state.nextCursor != null &&
+        state.nextCursor!.isNotEmpty &&
+        !state.loadingMore &&
+        !state.isRefreshing) {
+      await loadMore();
+      if (state.error != null) {
+        break;
+      }
     }
   }
 
@@ -94,6 +112,7 @@ class CustomerListNotifier extends AutoDisposeNotifier<CustomerListState> {
         error: null,
         lastFetchedAt: DateTime.now(),
         searchApplied: cur.searchApplied,
+        fullyLoaded: page.nextCursor == null || page.nextCursor!.isEmpty,
       );
     } catch (e) {
       state = cur.copyWith(loadingMore: false, error: e);

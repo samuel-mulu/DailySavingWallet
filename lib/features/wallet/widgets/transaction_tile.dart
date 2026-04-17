@@ -43,7 +43,7 @@ class TransactionTile extends StatelessWidget {
           if (tx.type == 'WITHDRAW_APPROVE' && tx.meta != null) ...[
             const SizedBox(height: 2),
             Text(
-              'Fee: ${MoneyEtb.formatCents(_toInt(tx.meta!['approvalFeeCents']))} • Total: ${MoneyEtb.formatCents(_toInt(tx.meta!['totalDebitCents']))}',
+              'Fee: ${MoneyEtb.formatCents(_toInt(tx.meta!['approvalFeeCents']))} • Net payout: ${MoneyEtb.formatCents(_toInt(tx.meta!['netPayoutCents']))}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],

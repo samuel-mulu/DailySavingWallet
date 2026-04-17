@@ -8,6 +8,7 @@ class CustomerListState {
   final Object? error;
   final DateTime? lastFetchedAt;
   final String searchApplied;
+  final bool fullyLoaded;
 
   const CustomerListState({
     required this.items,
@@ -17,6 +18,7 @@ class CustomerListState {
     required this.error,
     required this.lastFetchedAt,
     required this.searchApplied,
+    required this.fullyLoaded,
   });
 
   factory CustomerListState.initial() => const CustomerListState(
@@ -27,6 +29,7 @@ class CustomerListState {
         error: null,
         lastFetchedAt: null,
         searchApplied: '',
+        fullyLoaded: false,
       );
 
   CustomerListState copyWith({
@@ -37,6 +40,7 @@ class CustomerListState {
     Object? error,
     DateTime? lastFetchedAt,
     String? searchApplied,
+    bool? fullyLoaded,
     bool clearError = false,
     bool clearCursor = false,
   }) {
@@ -48,6 +52,7 @@ class CustomerListState {
       error: clearError ? null : (error ?? this.error),
       lastFetchedAt: lastFetchedAt ?? this.lastFetchedAt,
       searchApplied: searchApplied ?? this.searchApplied,
+      fullyLoaded: fullyLoaded ?? this.fullyLoaded,
     );
   }
 }

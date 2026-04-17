@@ -366,7 +366,7 @@ class _WithdrawApprovalsScreenState
                         children: [
                           Expanded(
                             child: _MetricCard(
-                              label: 'Requested',
+                              label: 'Requested debit',
                               value: MoneyEtb.formatCents(request.amountCents),
                               color: statusColor,
                             ),
@@ -374,7 +374,7 @@ class _WithdrawApprovalsScreenState
                           const SizedBox(width: 10),
                           Expanded(
                             child: _MetricCard(
-                              label: 'Fee',
+                              label: 'Fee deducted',
                               value: MoneyEtb.formatCents(request.feeCents),
                               color: const Color(0xFFF59E0B),
                             ),
@@ -382,9 +382,9 @@ class _WithdrawApprovalsScreenState
                           const SizedBox(width: 10),
                           Expanded(
                             child: _MetricCard(
-                              label: 'Total Debit',
+                              label: 'Net payout',
                               value: MoneyEtb.formatCents(
-                                request.totalDebitCents,
+                                request.netPayoutCents,
                               ),
                               color: const Color(0xFF0EA5E9),
                             ),
@@ -845,8 +845,8 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
     final amountCents = _tryParseAmountCents();
     final amountIsValid = amountCents != null;
     final currentBalance = wallet?.balanceCents ?? 0;
-    final totalDebitCents = amountIsValid ? _preview.totalDebitCents : 0;
-    final afterBalance = currentBalance - totalDebitCents;
+    final approvedDebitCents = amountIsValid ? _preview.requestedAmountCents : 0;
+    final afterBalance = currentBalance - approvedDebitCents;
     final limitCents = wallet?.creditLimitCents ?? 0;
     final debtCents = afterBalance < 0 ? -afterBalance : 0;
     final exceedsLimit =
@@ -884,7 +884,7 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
               decoration: const InputDecoration(
                 labelText: 'Approve amount (ETB)',
                 helperText:
-                    'Fee uses the exact 1/30 rule. Example: 3000 -> 100.',
+                    'Fee uses the exact 1/30 rule and is deducted from approved amount.',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -919,9 +919,9 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
                   ),
                   const SizedBox(height: 10),
                   _DialogPreviewRow(
-                    label: 'Approve amount',
+                    label: 'Approved debit',
                     value: amountIsValid
-                        ? MoneyEtb.formatCents(_preview.amountCents)
+                        ? MoneyEtb.formatCents(_preview.requestedAmountCents)
                         : 'Enter amount',
                   ),
                   const SizedBox(height: 8),
@@ -933,9 +933,9 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
                   ),
                   const SizedBox(height: 8),
                   _DialogPreviewRow(
-                    label: 'Total debit',
+                    label: 'Net payout',
                     value: amountIsValid
-                        ? MoneyEtb.formatCents(_preview.totalDebitCents)
+                        ? MoneyEtb.formatCents(_preview.netPayoutCents)
                         : 'Enter amount',
                     emphasize: true,
                   ),
@@ -1140,7 +1140,7 @@ class _RequestCard extends StatelessWidget {
                     ),
                     _InfoPill(
                       label:
-                          'Total ${MoneyEtb.formatCents(request.totalDebitCents)}',
+                          'Net ${MoneyEtb.formatCents(request.netPayoutCents)}',
                     ),
                   ],
                 ),
