@@ -5,8 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/routing/routes.dart';
 import '../../core/money/money.dart';
-import '../../data/wallet/models.dart';
-import '../../data/wallet/wallet_repo.dart';
 import '../../data/users/user_model.dart';
 import '../auth/providers/auth_providers.dart';
 import '../wallet/withdraw_request_screen.dart';
@@ -21,17 +19,8 @@ class CustomerDashboard extends ConsumerStatefulWidget {
 }
 
 class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
-  final _repo = WalletRepo();
   final _scroll = ScrollController();
-
-  final List<LedgerTx> _ledger = [];
-  Object? _lastDoc;
-  bool _loading = false;
-  bool _loadingMore = false;
-  bool _hasMore = true;
-  String? _ledgerError;
-  String? _activeCustomerId;
-  String? _lastLoadedCustomerId;
+  String? _lastLedgerCustomerId;
 
   @override
   void initState() {
@@ -46,60 +35,19 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
   }
 
   void _onScroll() {
-    if (!_hasMore || _loadingMore || _loading) return;
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 200) {
-      unawaited(_loadMore());
-    }
-  }
-
-  Future<void> _loadFirstPage(String customerId) async {
-    setState(() {
-      _loading = true;
-      _ledgerError = null;
-      _ledger.clear();
-      _lastDoc = null;
-      _hasMore = true;
-      _activeCustomerId = customerId;
-      _lastLoadedCustomerId = customerId;
-    });
-
-    try {
-      final page = await _repo.fetchLedgerPage(customerId);
-      if (!mounted) return;
-      setState(() {
-        _ledger.addAll(page.items);
-        _lastDoc = page.lastDoc;
-        _hasMore = page.hasMore;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _ledgerError = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _loadMore() async {
-    final customerId = _activeCustomerId;
+    final customerId = _lastLedgerCustomerId;
     if (customerId == null) return;
-    final startAfter = _lastDoc;
-    if (startAfter == null) return;
-
-    setState(() => _loadingMore = true);
-    try {
-      final page = await _repo.fetchLedgerPage(
-        customerId,
-        startAfter: startAfter,
+    final query = CustomerDashboardLedgerQuery(customerId: customerId);
+    final ledgerState = ref.read(customerDashboardLedgerProvider(query));
+    if (!ledgerState.hasMore ||
+        ledgerState.loadingMore ||
+        ledgerState.isRefreshing) {
+      return;
+    }
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 200) {
+      unawaited(
+        ref.read(customerDashboardLedgerProvider(query).notifier).loadMore(),
       );
-      if (!mounted) return;
-      setState(() {
-        _ledger.addAll(page.items);
-        _lastDoc = page.lastDoc;
-        _hasMore = page.hasMore;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _ledgerError ??= e.toString());
-    } finally {
-      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -145,10 +93,23 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
             );
           }
 
-          if (_lastLoadedCustomerId != customerId) {
+          final ledgerQuery = CustomerDashboardLedgerQuery(
+            customerId: customerId,
+          );
+          final ledgerState = ref.watch(
+            customerDashboardLedgerProvider(ledgerQuery),
+          );
+          if (_lastLedgerCustomerId != customerId) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
-                unawaited(_loadFirstPage(customerId));
+                _lastLedgerCustomerId = customerId;
+                unawaited(
+                  ref
+                      .read(
+                        customerDashboardLedgerProvider(ledgerQuery).notifier,
+                      )
+                      .loadInitial(forceNetwork: true),
+                );
               }
             });
           }
@@ -168,7 +129,9 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                     )).notifier,
                   )
                   .refresh(force: true);
-              await _loadFirstPage(customerId);
+              await ref
+                  .read(customerDashboardLedgerProvider(ledgerQuery).notifier)
+                  .refresh(force: true);
             },
             child: ListView(
               controller: _scroll,
@@ -206,7 +169,13 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                             )).notifier,
                           )
                           .refresh(force: true);
-                      await _loadFirstPage(customerId);
+                      await ref
+                          .read(
+                            customerDashboardLedgerProvider(
+                              ledgerQuery,
+                            ).notifier,
+                          )
+                          .refresh(force: true);
                     },
                     icon: const Icon(Icons.request_page),
                     label: const Text('Request Withdraw'),
@@ -218,16 +187,17 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
-                if (_loading) const Center(child: CircularProgressIndicator()),
-                if (_ledgerError != null)
+                if (ledgerState.items.isEmpty && ledgerState.isRefreshing)
+                  const Center(child: CircularProgressIndicator()),
+                if (ledgerState.error != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Text(
-                      _ledgerError.toString(),
+                      ledgerState.error.toString(),
                       style: const TextStyle(color: Colors.red),
                     ),
                   ),
-                ..._ledger.map((tx) {
+                ...ledgerState.items.map((tx) {
                   final sign = tx.direction == 'OUT' ? '-' : '+';
                   final amount = '$sign${MoneyEtb.formatCents(tx.amountCents)}';
                   final when = tx.createdAt == null
@@ -240,14 +210,16 @@ class _CustomerDashboardState extends ConsumerState<CustomerDashboard> {
                     trailing: Text(amount),
                   );
                 }),
-                if (_loadingMore)
+                if (ledgerState.loadingMore)
                   const Center(
                     child: Padding(
                       padding: EdgeInsets.all(8),
                       child: CircularProgressIndicator(),
                     ),
                   ),
-                if (!_loading && _ledger.isEmpty && _ledgerError == null)
+                if (!ledgerState.isRefreshing &&
+                    ledgerState.items.isEmpty &&
+                    ledgerState.error == null)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Center(child: Text('No transactions yet.')),

@@ -6,20 +6,16 @@ import '../../../core/routing/routes.dart';
 import '../../../core/ui/app_header.dart';
 import '../../../data/api/wallet_api.dart';
 import '../../../data/customers/customer_model.dart';
-import '../../../data/customers/customer_repo.dart';
-import '../../../data/wallet/models.dart';
-import '../../../data/wallet/wallet_repo.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../customers/admin_customer_ids_notifier.dart';
 import '../../customers/customer_list_notifier.dart';
+import '../../wallet/wallet_providers.dart';
 import '../admin_tab.dart';
 import '../customers/customer_detail_screen.dart';
 import '../customers/widgets/customer_profile_avatar.dart';
 
 class AdminHomeTab extends ConsumerStatefulWidget {
   final ValueChanged<AdminTab>? onNavigateToTab;
-  final WalletRepo? walletRepo;
-  final CustomerRepo? customerRepo;
   final Future<int> Function()? loadPendingWithdrawCount;
   final Future<int> Function()? loadCustomerCount;
   final Future<int> Function()? loadTotalSaving;
@@ -31,8 +27,6 @@ class AdminHomeTab extends ConsumerStatefulWidget {
   const AdminHomeTab({
     super.key,
     this.onNavigateToTab,
-    this.walletRepo,
-    this.customerRepo,
     this.loadPendingWithdrawCount,
     this.loadCustomerCount,
     this.loadTotalSaving,
@@ -45,12 +39,6 @@ class AdminHomeTab extends ConsumerStatefulWidget {
 }
 
 class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
-  WalletRepo? _walletRepo;
-  CustomerRepo? _customerRepo;
-  late Future<WalletTotals> _walletTotalsFuture;
-  late Future<List<Customer>> _customersWithSavingFuture;
-  late Future<List<Customer>> _customersWithCreditFuture;
-  late Future<List<Customer>> _customersWithFlatFuture;
   bool _logoutLoading = false;
 
   Future<void> _logout() async {
@@ -66,36 +54,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     }
   }
 
-  Future<WalletTotals> _resolveWalletTotals() async {
-    if (widget.loadWalletTotals != null) {
-      return widget.loadWalletTotals!();
-    }
-    if (_walletRepo != null) {
-      return _walletRepo!.fetchWalletTotals();
-    }
-    final saving = await (widget.loadTotalSaving?.call() ?? Future.value(0));
-    final credit = await (widget.loadTotalCredit?.call() ?? Future.value(0));
-    return WalletTotals(
-      totalSavingCents: saving,
-      totalCreditCents: credit,
-      companyWalletBalanceCents: 0,
-      companyFeeRevenueCents: 0,
-    );
-  }
-
   @override
   void initState() {
     super.initState();
-    _customerRepo = widget.customerRepo ?? CustomerRepo();
-    if (widget.loadPendingWithdrawCount == null ||
-        widget.loadTotalSaving == null ||
-        widget.loadTotalCredit == null) {
-      _walletRepo = widget.walletRepo ?? WalletRepo();
-    }
-    _walletTotalsFuture = _resolveWalletTotals();
-    _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
-    _customersWithCreditFuture = _loadCustomersWithCredit();
-    _customersWithFlatFuture = _loadCustomersWithFlatBalance();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.loadCustomerCount == null) {
         ref.read(customerListNotifierProvider.notifier).loadInitial();
@@ -137,12 +98,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     .read(adminCustomerIdsStaleProvider.notifier)
                     .refresh(force: true);
               }
-              setState(() {
-                _walletTotalsFuture = _resolveWalletTotals();
-                _customersWithSavingFuture = _loadCustomersWithPositiveSaving();
-                _customersWithCreditFuture = _loadCustomersWithCredit();
-                _customersWithFlatFuture = _loadCustomersWithFlatBalance();
-              });
+              ref.invalidate(adminHomeWalletTotalsProvider);
+              ref.invalidate(adminHomeCustomerBucketsProvider);
+              ref.invalidate(adminHomePendingWithdrawCountProvider);
             },
             child: ListView(
               padding: const EdgeInsets.all(16),
@@ -153,7 +111,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                       child: FutureBuilder<int>(
                         future:
                             widget.loadPendingWithdrawCount?.call() ??
-                            _walletRepo!.fetchPendingWithdrawCount(limit: 99),
+                            ref.read(
+                              adminHomePendingWithdrawCountProvider.future,
+                            ),
                         builder: (context, snap) {
                           return _StatCard(
                             title: 'Pending',
@@ -174,7 +134,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FutureBuilder<WalletTotals>(
-                        future: _walletTotalsFuture,
+                        future:
+                            widget.loadWalletTotals?.call() ??
+                            ref.read(adminHomeWalletTotalsProvider.future),
                         builder: (context, wtSnap) {
                           final wt = wtSnap.data;
                           return widget.loadCustomerCount != null
@@ -239,15 +201,19 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   children: [
                     Expanded(
                       child: FutureBuilder<WalletTotals>(
-                        future: _walletTotalsFuture,
+                        future:
+                            widget.loadWalletTotals?.call() ??
+                            ref.read(adminHomeWalletTotalsProvider.future),
                         builder: (context, wtSnap) {
                           final wt = wtSnap.data;
-                          return FutureBuilder<List<Customer>>(
-                            future: _customersWithSavingFuture,
+                          return FutureBuilder<AdminHomeCustomerBuckets>(
+                            future: ref.read(
+                              adminHomeCustomerBucketsProvider.future,
+                            ),
                             builder: (context, savingCustomersSnap) {
+                              final buckets = savingCustomersSnap.data;
                               final savingCustomers =
-                                  savingCustomersSnap.data ??
-                                  const <Customer>[];
+                                  buckets?.withSaving ?? const <Customer>[];
                               final savingCents = wt?.totalSavingCents ?? 0;
                               final wPos = wt?.walletsWithPositiveBalanceCount;
                               return _StatCard(
@@ -266,6 +232,10 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                     : 'Tap for detail',
                                 onTap: () => _showCustomersWithSavingModal(
                                   context,
+                                  customers: savingCustomers,
+                                  savingByCustomerId:
+                                      buckets?.savingByCustomerId ??
+                                      const <String, int>{},
                                   headerTotalCents: savingCents,
                                   walletMetricCount: wPos ?? 0,
                                 ),
@@ -278,15 +248,19 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FutureBuilder<WalletTotals>(
-                        future: _walletTotalsFuture,
+                        future:
+                            widget.loadWalletTotals?.call() ??
+                            ref.read(adminHomeWalletTotalsProvider.future),
                         builder: (context, wtSnap) {
                           final wt = wtSnap.data;
-                          return FutureBuilder<List<Customer>>(
-                            future: _customersWithCreditFuture,
+                          return FutureBuilder<AdminHomeCustomerBuckets>(
+                            future: ref.read(
+                              adminHomeCustomerBucketsProvider.future,
+                            ),
                             builder: (context, creditCustomersSnap) {
+                              final buckets = creditCustomersSnap.data;
                               final creditCustomers =
-                                  creditCustomersSnap.data ??
-                                  const <Customer>[];
+                                  buckets?.withCredit ?? const <Customer>[];
                               final creditCents = (wt?.totalCreditCents ?? 0)
                                   .abs();
                               final wNeg = wt?.walletsWithNegativeBalanceCount;
@@ -306,6 +280,10 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                                     : 'Tap for detail',
                                 onTap: () => _showCustomersWithCreditModal(
                                   context,
+                                  customers: creditCustomers,
+                                  creditByCustomerId:
+                                      buckets?.creditByCustomerId ??
+                                      const <String, int>{},
                                   headerTotalCents: creditCents,
                                   walletMetricCount: wNeg ?? 0,
                                 ),
@@ -319,14 +297,17 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                 ),
                 const SizedBox(height: 12),
                 FutureBuilder<WalletTotals>(
-                  future: _walletTotalsFuture,
+                  future:
+                      widget.loadWalletTotals?.call() ??
+                      ref.read(adminHomeWalletTotalsProvider.future),
                   builder: (context, wtSnap) {
                     final wt = wtSnap.data;
-                    return FutureBuilder<List<Customer>>(
-                      future: _customersWithFlatFuture,
+                    return FutureBuilder<AdminHomeCustomerBuckets>(
+                      future: ref.read(adminHomeCustomerBucketsProvider.future),
                       builder: (context, flatCustomersSnap) {
                         final flatCustomers =
-                            flatCustomersSnap.data ?? const <Customer>[];
+                            flatCustomersSnap.data?.withFlat ??
+                            const <Customer>[];
                         final totalWallets = wt?.totalCustomerWalletCount ?? 0;
                         final positiveWallets =
                             wt?.walletsWithPositiveBalanceCount ?? 0;
@@ -349,6 +330,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                               : 'Tap for detail',
                           onTap: () => _showCustomersWithFlatModal(
                             context,
+                            customers: flatCustomers,
                             walletMetricCount: flatWallets,
                           ),
                         );
@@ -361,7 +343,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   children: [
                     Expanded(
                       child: FutureBuilder<WalletTotals>(
-                        future: _walletTotalsFuture,
+                        future:
+                            widget.loadWalletTotals?.call() ??
+                            ref.read(adminHomeWalletTotalsProvider.future),
                         builder: (context, snap) {
                           final wt = snap.data;
                           final saving = wt?.totalSavingCents ?? 0;
@@ -380,7 +364,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: FutureBuilder<WalletTotals>(
-                        future: _walletTotalsFuture,
+                        future:
+                            widget.loadWalletTotals?.call() ??
+                            ref.read(adminHomeWalletTotalsProvider.future),
                         builder: (context, snap) {
                           final wt = snap.data;
                           final saving = wt?.totalSavingCents ?? 0;
@@ -497,97 +483,6 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     );
   }
 
-  Future<List<Customer>> _loadCustomersWithPositiveSaving() async {
-    final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
-    final withSaving = customers.where((customer) {
-      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
-      if (wallets.isEmpty) {
-        return customer.balanceCents > 0;
-      }
-      return wallets.any((wallet) => wallet.balanceCents > 0);
-    }).toList(growable: false);
-    return _sortCustomers(withSaving);
-  }
-
-  Future<List<Customer>> _loadCustomersWithCredit() async {
-    final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
-    final withCredit = customers.where((customer) {
-      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
-      if (wallets.isEmpty) {
-        return customer.balanceCents < 0;
-      }
-      return wallets.any((wallet) => wallet.balanceCents < 0);
-    }).toList(growable: false);
-    return _sortCustomers(withCredit);
-  }
-
-  Future<List<Customer>> _loadCustomersWithFlatBalance() async {
-    final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
-    final withFlat = customers.where((customer) {
-      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
-      if (wallets.isEmpty) {
-        return customer.balanceCents == 0;
-      }
-      return wallets.any((wallet) => wallet.balanceCents == 0);
-    }).toList(growable: false);
-    return _sortCustomers(withFlat);
-  }
-
-  Future<Map<String, List<CustomerWallet>>> _loadWalletBalancesByCustomerIds(
-    List<Customer> customers,
-  ) async {
-    if (_walletRepo == null || customers.isEmpty) {
-      return const <String, List<CustomerWallet>>{};
-    }
-    final customerIds = customers.map((customer) => customer.customerId).toList(growable: false);
-    return _walletRepo!.fetchWalletsForCustomers(customerIds);
-  }
-
-  Future<Map<String, int>> _loadSavingByCustomerId(List<Customer> customers) async {
-    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
-    final result = <String, int>{};
-    for (final customer in customers) {
-      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
-      if (wallets.isEmpty) {
-        result[customer.customerId] = customer.balanceCents > 0 ? customer.balanceCents : 0;
-        continue;
-      }
-      final sum = wallets
-          .where((wallet) => wallet.balanceCents > 0)
-          .fold<int>(0, (acc, wallet) => acc + wallet.balanceCents);
-      result[customer.customerId] = sum;
-    }
-    return result;
-  }
-
-  Future<Map<String, int>> _loadCreditByCustomerId(List<Customer> customers) async {
-    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
-    final result = <String, int>{};
-    for (final customer in customers) {
-      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
-      if (wallets.isEmpty) {
-        result[customer.customerId] = customer.balanceCents < 0 ? customer.balanceCents.abs() : 0;
-        continue;
-      }
-      final sum = wallets
-          .where((wallet) => wallet.balanceCents < 0)
-          .fold<int>(0, (acc, wallet) => acc + wallet.balanceCents.abs());
-      result[customer.customerId] = sum;
-    }
-    return result;
-  }
-
-  List<Customer> _sortCustomers(List<Customer> customers) {
-    final sorted = [...customers];
-    sorted.sort(
-      (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
-    );
-    return sorted;
-  }
-
   String _customerCountLabel(int count) {
     return '$count customer${count == 1 ? '' : 's'}';
   }
@@ -598,16 +493,17 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
   Future<void> _showCustomersWithSavingModal(
     BuildContext context, {
+    required List<Customer> customers,
+    required Map<String, int> savingByCustomerId,
     required int headerTotalCents,
     required int walletMetricCount,
   }) async {
     await _showCustomerBalanceModal(
       context,
       title: 'Customers With Saving',
-      future: _customersWithSavingFuture,
+      customers: customers,
       emptyMessage: 'No customers with positive saving right now.',
-      valueFor: (customer) => customer.balanceCents,
-      walletValueForCustomers: _loadSavingByCustomerId,
+      valueFor: (customer) => savingByCustomerId[customer.customerId] ?? 0,
       valueColor: const Color(0xFF10B981),
       headerTotalCents: headerTotalCents,
       walletMetricCount: walletMetricCount,
@@ -616,16 +512,17 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
   Future<void> _showCustomersWithCreditModal(
     BuildContext context, {
+    required List<Customer> customers,
+    required Map<String, int> creditByCustomerId,
     required int headerTotalCents,
     required int walletMetricCount,
   }) async {
     await _showCustomerBalanceModal(
       context,
       title: 'Customers With Credit',
-      future: _customersWithCreditFuture,
+      customers: customers,
       emptyMessage: 'No customers with credit right now.',
-      valueFor: (customer) => customer.balanceCents.abs(),
-      walletValueForCustomers: _loadCreditByCustomerId,
+      valueFor: (customer) => creditByCustomerId[customer.customerId] ?? 0,
       valueColor: const Color(0xFFEF5350),
       headerTotalCents: headerTotalCents,
       walletMetricCount: walletMetricCount,
@@ -634,12 +531,13 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
   Future<void> _showCustomersWithFlatModal(
     BuildContext context, {
+    required List<Customer> customers,
     required int walletMetricCount,
   }) async {
     await _showCustomerBalanceModal(
       context,
       title: 'Customers With Flat Balance',
-      future: _customersWithFlatFuture,
+      customers: customers,
       emptyMessage: 'No customers with flat (0) balance right now.',
       valueFor: (_) => 0,
       valueColor: const Color(0xFF6366F1),
@@ -651,10 +549,9 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
   Future<void> _showCustomerBalanceModal(
     BuildContext context, {
     required String title,
-    required Future<List<Customer>> future,
+    required List<Customer> customers,
     required String emptyMessage,
     required int Function(Customer customer) valueFor,
-    Future<Map<String, int>> Function(List<Customer> customers)? walletValueForCustomers,
     required Color valueColor,
     int? headerTotalCents,
     int? walletMetricCount,
@@ -666,142 +563,102 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
       builder: (sheetContext) => SafeArea(
         child: FractionallySizedBox(
           heightFactor: 0.82,
-          child: FutureBuilder<List<Customer>>(
-            future: future,
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting &&
-                  !snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (snap.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Could not load $title.',
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '${snap.error}',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }
-
-              final customers = snap.data ?? const <Customer>[];
-              if (customers.isEmpty) {
-                return Padding(
+          child: customers.isEmpty
+              ? Padding(
                   padding: const EdgeInsets.all(24),
                   child: Center(child: Text(emptyMessage)),
-                );
-              }
-              return FutureBuilder<Map<String, int>>(
-                future: walletValueForCustomers?.call(customers) ??
-                    Future.value(const <String, int>{}),
-                builder: (context, walletValuesSnap) {
-                  final walletValues = walletValuesSnap.data ?? const <String, int>{};
-                  final resolvedValueFor = (Customer customer) {
-                    final walletValue = walletValues[customer.customerId];
-                    return walletValue ?? valueFor(customer);
-                  };
-                  final listSumCents = customers.fold<int>(
-                    0,
-                    (sum, customer) => sum + resolvedValueFor(customer),
-                  );
-                  final totalCents = headerTotalCents ?? listSumCents;
-
-                  return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                    child: Column(
+                )
+              : Builder(
+                  builder: (context) {
+                    final listSumCents = customers.fold<int>(
+                      0,
+                      (sum, customer) => sum + valueFor(customer),
+                    );
+                    final totalCents = headerTotalCents ?? listSumCents;
+                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          headerTotalCents != null
-                              ? '${_walletCountLabel(walletMetricCount ?? 0)} · ${_customerCountLabel(customers.length)} listed · ${MoneyEtb.formatCents(totalCents)} total'
-                              : '${_customerCountLabel(customers.length)} · ${MoneyEtb.formatCents(totalCents)}',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        if (headerTotalCents != null &&
-                            listSumCents != headerTotalCents &&
-                            customers.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            'List sum ${MoneyEtb.formatCents(listSumCents)} (wallet-based per customer).',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount: customers.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final customer = customers[index];
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 4,
-                          ),
-                          leading: CustomerProfileAvatar(
-                            customer: customer,
-                            radius: 20,
-                            enablePreview: true,
-                          ),
-                          title: Text(customer.fullName),
-                          subtitle: Text(
-                            '${customer.companyName} - ${customer.phone}',
-                          ),
-                          trailing: Text(
-                            MoneyEtb.formatCents(resolvedValueFor(customer)),
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: valueColor,
-                            ),
-                          ),
-                          onTap: () {
-                            Navigator.of(sheetContext).pop();
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => CustomerDetailScreen(
-                                  customerId: customer.customerId,
-                                ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.bold),
                               ),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-                  );
-                },
-              );
-            },
-          ),
+                              const SizedBox(height: 4),
+                              Text(
+                                headerTotalCents != null
+                                    ? '${_walletCountLabel(walletMetricCount ?? 0)} · ${_customerCountLabel(customers.length)} listed · ${MoneyEtb.formatCents(totalCents)} total'
+                                    : '${_customerCountLabel(customers.length)} · ${MoneyEtb.formatCents(totalCents)}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                              if (headerTotalCents != null &&
+                                  listSumCents != headerTotalCents &&
+                                  customers.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  'List sum ${MoneyEtb.formatCents(listSumCents)} (wallet-based per customer).',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.outline,
+                                      ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: customers.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final customer = customers[index];
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 4,
+                                ),
+                                leading: CustomerProfileAvatar(
+                                  customer: customer,
+                                  radius: 20,
+                                  enablePreview: true,
+                                ),
+                                title: Text(customer.fullName),
+                                subtitle: Text(
+                                  '${customer.companyName} - ${customer.phone}',
+                                ),
+                                trailing: Text(
+                                  MoneyEtb.formatCents(valueFor(customer)),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: valueColor,
+                                  ),
+                                ),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop();
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => CustomerDetailScreen(
+                                        customerId: customer.customerId,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
         ),
       ),
     );

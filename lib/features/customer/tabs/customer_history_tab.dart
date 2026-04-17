@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/settings/calendar_mode.dart';
+import '../../../core/ui/empty_state.dart';
+import '../../../core/ui/error_state.dart';
 import '../../../core/ui/ethiopian_date_picker.dart';
 import '../../../data/wallet/models.dart';
-import '../../../data/wallet/wallet_repo.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../data/repository_providers.dart';
+import '../../data/server_state_refresh.dart';
+import '../../wallet/wallet_providers.dart';
+import '../../wallet/wallet_status_utils.dart';
 import '../../wallet/widgets/transaction_tile.dart';
 
 class CustomerHistoryTab extends ConsumerStatefulWidget {
@@ -22,37 +25,19 @@ class CustomerHistoryTab extends ConsumerStatefulWidget {
 }
 
 class _CustomerHistoryTabState extends ConsumerState<CustomerHistoryTab> {
-  final _repo = WalletRepo();
-  final _scroll = ScrollController();
   CalendarModeService? _calendarService;
-
-  final List<LedgerTx> _ledger = [];
-  Object? _lastDoc;
-  bool _loading = false;
-  bool _loadingMore = false;
-  bool _hasMore = true;
-  String? _error;
-  String? _customerId;
-  String _profileStatus = 'active';
-  List<CustomerWallet> _wallets = const [];
   String? _selectedWalletId;
-
-  DateTime _selectedDate = DateTime.now();
-
-  String _selectedFilter = 'All';
-  final Map<String, List<String>> _filterMap = {
-    'All': [],
-    'Withdrawals': ['WITHDRAW_REQUEST', 'WITHDRAW_APPROVE'],
-    'Deposits': ['DEPOSIT', 'ADJUSTMENT'],
-    'Saving': ['DAILY_PAYMENT'],
-  };
+  DateTime _selectedDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
+  String _selectedFilter = CustomerHistoryFilterValues.all;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initCustomerId());
     _initCalendarService();
-    _scroll.addListener(_onScroll);
   }
 
   Future<void> _initCalendarService() async {
@@ -67,141 +52,37 @@ class _CustomerHistoryTabState extends ConsumerState<CustomerHistoryTab> {
     super.didUpdateWidget(oldWidget);
     if (widget.refreshSignal != oldWidget.refreshSignal &&
         widget.refreshSignal > 0) {
-      final id = _customerId;
-      if (id != null && id.isNotEmpty) {
-        _loadFirstPage();
+      final query = _currentLedgerQuery();
+      if (query == null) {
+        return;
       }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        refreshCustomerHistoryScope(
+          ref,
+          customerId: query.customerId,
+          query: query,
+        );
+      });
     }
   }
 
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initCustomerId() async {
+  CustomerLedgerPageQuery? _currentLedgerQuery() {
     final uid = ref.read(authUidProvider).valueOrNull;
-    if (uid == null) return;
-    final profile = await ref.read(appUserProfileProvider(uid).future);
-    final customerId = profile.customerId;
-    if (mounted) {
-      setState(() {
-        _customerId = customerId;
-        _profileStatus = profile.status;
-      });
-      if (customerId != null && customerId.isNotEmpty) {
-        try {
-          final wallets =
-              await ref.read(customerRepoProvider).fetchCustomerWallets(customerId);
-          if (mounted) {
-            setState(() {
-              _wallets = wallets;
-              _selectedWalletId = wallets
-                  .firstWhere((w) => w.isPrimary, orElse: () => wallets.first)
-                  .id;
-            });
-          }
-        } catch (_) {}
-        _loadFirstPage();
-      }
-    }
-  }
-
-  void _onScroll() {
-    if (!_hasMore || _loadingMore || _loading) return;
-    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 200) {
-      _loadMore();
-    }
-  }
-
-  Future<void> _loadFirstPage() async {
-    if (_customerId == null) return;
-
-    final keptLedger = List<LedgerTx>.from(_ledger);
-    setState(() {
-      _loading = true;
-      _error = null;
-      _lastDoc = null;
-      _hasMore = true;
-    });
-
-    try {
-      final start = DateTime(_selectedDate.year, _selectedDate.month, 1);
-      final end = DateTime(
-        _selectedDate.year,
-        _selectedDate.month + 1,
-        0,
-        23,
-        59,
-        59,
-      );
-
-      final page = await _repo.fetchLedgerPage(
-        _customerId!,
-        startDate: start,
-        endDate: end,
-        types: _filterMap[_selectedFilter],
-        walletId: _selectedWalletId,
-      );
-      if (mounted) {
-        setState(() {
-          _ledger
-            ..clear()
-            ..addAll(page.items);
-          _lastDoc = page.lastDoc;
-          _hasMore = page.hasMore;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _ledger
-            ..clear()
-            ..addAll(keptLedger);
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (_customerId == null) return;
-    final startAfter = _lastDoc;
-    if (startAfter == null) return;
-
-    setState(() => _loadingMore = true);
-    try {
-      final start = DateTime(_selectedDate.year, _selectedDate.month, 1);
-      final end = DateTime(
-        _selectedDate.year,
-        _selectedDate.month + 1,
-        0,
-        23,
-        59,
-        59,
-      );
-
-      final page = await _repo.fetchLedgerPage(
-        _customerId!,
-        startAfter: startAfter,
-        startDate: start,
-        endDate: end,
-        types: _filterMap[_selectedFilter],
-        walletId: _selectedWalletId,
-      );
-      setState(() {
-        _ledger.addAll(page.items);
-        _lastDoc = page.lastDoc;
-        _hasMore = page.hasMore;
-      });
-    } catch (e) {
-      setState(() => _error ??= e.toString());
-    } finally {
-      if (mounted) setState(() => _loadingMore = false);
-    }
+    if (uid == null) return null;
+    final profile = ref.read(appUserProfileProvider(uid)).valueOrNull;
+    final customerId = profile?.customerId;
+    if (customerId == null || customerId.isEmpty) return null;
+    final walletsState = ref.read(customerWalletsStaleProvider(customerId));
+    final wallets = walletsState.data ?? const <CustomerWallet>[];
+    final selectedWalletId = _resolveSelectedWalletId(wallets);
+    if (selectedWalletId == null) return null;
+    return CustomerLedgerPageQuery.fromDate(
+      customerId: customerId,
+      walletId: selectedWalletId,
+      month: _selectedDate,
+      filter: _selectedFilter,
+    );
   }
 
   Future<void> _selectMonth() async {
@@ -241,9 +122,8 @@ class _CustomerHistoryTabState extends ConsumerState<CustomerHistoryTab> {
         (picked.year != _selectedDate.year ||
             picked.month != _selectedDate.month)) {
       setState(() {
-        _selectedDate = picked!;
+        _selectedDate = DateTime(picked!.year, picked.month, 1);
       });
-      _loadFirstPage();
     }
   }
 
@@ -255,223 +135,398 @@ class _CustomerHistoryTabState extends ConsumerState<CustomerHistoryTab> {
     return DateFormat('MMM yyyy').format(date);
   }
 
+  Future<void> _onRefresh({
+    required String customerId,
+    required CustomerLedgerPageQuery? query,
+  }) async {
+    if (query == null) {
+      await ref
+          .read(customerWalletsStaleProvider(customerId).notifier)
+          .refresh(force: true);
+      return;
+    }
+
+    await refreshCustomerHistoryScope(
+      ref,
+      customerId: customerId,
+      query: query,
+    );
+  }
+
+  bool _handleHistoryScroll(
+    ScrollNotification notification,
+    CustomerLedgerPageQuery? query,
+  ) {
+    if (query == null || notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
+    if (notification.metrics.pixels >=
+        notification.metrics.maxScrollExtent - 200) {
+      ref.read(ledgerPageNotifierProvider(query).notifier).loadMore();
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_calendarService == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final uid = ref.watch(authUidProvider).valueOrNull;
+    if (uid == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final profileAsync = ref.watch(appUserProfileProvider(uid));
+
     return ValueListenableBuilder<CalendarMode>(
       valueListenable: _calendarService!,
       builder: (context, mode, _) {
-        return Scaffold(
-          backgroundColor: const Color(0xFFF9FAFB),
-          appBar: AppBar(
-            title: const Text('History'),
-            elevation: 0,
-            backgroundColor: Colors.white,
-            foregroundColor: const Color(0xFF1F2937),
-            actions: [
-              TextButton.icon(
-                onPressed: _selectMonth,
-                icon: const Icon(Icons.calendar_month_rounded, size: 20),
-                label: Text(_formatMonthYear(_selectedDate)),
-                style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF8B5CF6),
-                ),
+        return profileAsync.when(
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          error: (error, _) => Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Could not load profile: $error'),
               ),
-              if (_wallets.length > 1)
-                DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedWalletId,
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _selectedWalletId = v);
-                      _loadFirstPage();
-                    },
-                    items: _wallets
-                        .map(
-                          (w) => DropdownMenuItem(
-                            value: w.id,
-                            child: Text(
-                              w.displayName,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
+            ),
+          ),
+          data: (profile) {
+            final customerId = profile.customerId;
+            if (customerId == null || customerId.isEmpty) {
+              return const Scaffold(
+                backgroundColor: Color(0xFFF9FAFB),
+                body: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: _HistoryInfoCard(
+                    icon: Icons.info_outline,
+                    message: 'Unable to load history right now.',
                   ),
                 ),
-              const SizedBox(width: 8),
-            ],
-          ),
-          body: Column(
-            children: [
-              if (_profileStatus != 'active' || _isSelectedWalletBlocked())
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _profileStatus != 'active'
-                        ? Colors.red.shade50
-                        : Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _profileStatus != 'active'
-                          ? Colors.red.shade300
-                          : Colors.orange.shade300,
+              );
+            }
+
+            final walletsStale = ref.watch(
+              customerWalletsStaleProvider(customerId),
+            );
+            final wallets = walletsStale.data ?? const <CustomerWallet>[];
+            final selectedWalletId = _resolveSelectedWalletId(wallets);
+            final query = selectedWalletId == null
+                ? null
+                : CustomerLedgerPageQuery.fromDate(
+                    customerId: customerId,
+                    walletId: selectedWalletId,
+                    month: _selectedDate,
+                    filter: _selectedFilter,
+                  );
+            final ledgerState = query == null
+                ? null
+                : ref.watch(ledgerPageNotifierProvider(query));
+
+            return Scaffold(
+              backgroundColor: const Color(0xFFF9FAFB),
+              appBar: AppBar(
+                title: const Text('History'),
+                elevation: 0,
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF1F2937),
+                actions: [
+                  TextButton.icon(
+                    onPressed: _selectMonth,
+                    icon: const Icon(Icons.calendar_month_rounded, size: 20),
+                    label: Text(_formatMonthYear(_selectedDate)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF8B5CF6),
                     ),
                   ),
-                  child: Text(
-                    _profileStatus != 'active'
-                        ? 'Your account is deactivated. Please contact your administrator.'
-                        : 'This wallet is frozen/closed. History access is limited.',
-                  ),
-                ),
-              // Filter Chips
-              Container(
-                height: 60,
-                color: Colors.white,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  children: _filterMap.keys.map((filter) {
-                    final isSelected = _selectedFilter == filter;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(filter),
-                        selected: isSelected,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() => _selectedFilter = filter);
-                            _loadFirstPage();
-                          }
+                  if (wallets.length > 1)
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: selectedWalletId,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _selectedWalletId = value);
                         },
-                        selectedColor: const Color(
-                          0xFF8B5CF6,
-                        ).withOpacity(0.15),
-                        labelStyle: TextStyle(
-                          color: isSelected
-                              ? const Color(0xFF8B5CF6)
-                              : const Color(0xFF6B7280),
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                        backgroundColor: const Color(0xFFF3F4F6),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(
-                            color: isSelected
-                                ? const Color(0xFF8B5CF6).withOpacity(0.2)
-                                : Colors.transparent,
-                          ),
+                        items: wallets
+                            .map(
+                              (wallet) => DropdownMenuItem<String>(
+                                value: wallet.id,
+                                child: Text(
+                                  wallet.displayName,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                ],
+              ),
+              body: Column(
+                children: [
+                  if (profile.status != 'active' ||
+                      _isSelectedWalletBlocked(wallets, selectedWalletId))
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: profile.status != 'active'
+                            ? Colors.red.shade50
+                            : Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: profile.status != 'active'
+                              ? Colors.red.shade300
+                              : Colors.orange.shade300,
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const Divider(height: 1),
-
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: _loadFirstPage,
-                  child: ListView(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(12),
-                    children: [
-                      if (_loading)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24.0),
-                            child: CircularProgressIndicator(),
-                          ),
-                        ),
-                      if (_error != null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                            _error!,
-                            style: const TextStyle(color: Colors.red),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      if (!_loading && _ledger.isEmpty && _error == null)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 48),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.history_rounded,
-                                size: 64,
-                                color: Colors.grey.withOpacity(0.5),
+                      child: Text(
+                        profile.status != 'active'
+                            ? 'Your account is deactivated. Please contact your administrator.'
+                            : 'This wallet is frozen/closed. History access is limited.',
+                      ),
+                    ),
+                  Container(
+                    height: 60,
+                    color: Colors.white,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      children: CustomerHistoryFilterValues.allValues.map((
+                        filter,
+                      ) {
+                        final isSelected = _selectedFilter == filter;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(filter),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              if (!selected) return;
+                              setState(() => _selectedFilter = filter);
+                            },
+                            selectedColor: const Color(
+                              0xFF8B5CF6,
+                            ).withOpacity(0.15),
+                            labelStyle: TextStyle(
+                              color: isSelected
+                                  ? const Color(0xFF8B5CF6)
+                                  : const Color(0xFF6B7280),
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                            backgroundColor: const Color(0xFFF3F4F6),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                              side: BorderSide(
+                                color: isSelected
+                                    ? const Color(0xFF8B5CF6).withOpacity(0.2)
+                                    : Colors.transparent,
                               ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No matches for "$_selectedFilter"',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 16,
-                                ),
-                              ),
-                              Text(
-                                'in ${_formatMonthYear(_selectedDate)}',
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-                      if (_ledger.isNotEmpty)
-                        Card(
-                          elevation: 2,
-                          shadowColor: Colors.black.withOpacity(0.05),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            children: [
-                              for (final tx in _ledger)
-                                TransactionTile(
-                                  tx: tx,
-                                  calendarMode: _calendarService?.value,
-                                ),
-                            ],
-                          ),
-                        ),
-                      if (_loadingMore)
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16),
-                            child: CircularProgressIndicator(),
-                          ),
-                        ),
-                      const SizedBox(height: 40),
-                    ],
+                        );
+                      }).toList(),
+                    ),
                   ),
-                ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: () =>
+                          _onRefresh(customerId: customerId, query: query),
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) =>
+                            _handleHistoryScroll(notification, query),
+                        child: ListView(
+                          padding: const EdgeInsets.all(12),
+                          children: [
+                            if (walletsStale.data == null &&
+                                walletsStale.isRefreshing)
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            else if (walletsStale.error != null &&
+                                wallets.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: ErrorState(
+                                  title: 'Could not load wallets',
+                                  message: walletsStale.error.toString(),
+                                  onRetry: () => ref
+                                      .read(
+                                        customerWalletsStaleProvider(
+                                          customerId,
+                                        ).notifier,
+                                      )
+                                      .refresh(force: true),
+                                ),
+                              )
+                            else if (query == null || ledgerState == null)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 36),
+                                child: _HistoryInfoCard(
+                                  icon: Icons.info_outline,
+                                  message:
+                                      'Unable to load wallet history right now.',
+                                ),
+                              )
+                            else ...[
+                              if (ledgerState.isRefreshing &&
+                                  ledgerState.items.isNotEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 8),
+                                  child: LinearProgressIndicator(minHeight: 2),
+                                ),
+                              if (ledgerState.items.isEmpty &&
+                                  ledgerState.isRefreshing)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(24),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                )
+                              else if (ledgerState.error != null &&
+                                  ledgerState.items.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  child: ErrorState(
+                                    title: 'Could not load history',
+                                    message: ledgerState.error.toString(),
+                                    onRetry: () => ref
+                                        .read(
+                                          ledgerPageNotifierProvider(
+                                            query,
+                                          ).notifier,
+                                        )
+                                        .refresh(force: true),
+                                  ),
+                                )
+                              else if (ledgerState.items.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 48,
+                                  ),
+                                  child: EmptyState(
+                                    icon: Icons.history_rounded,
+                                    title: 'No matches for "$_selectedFilter"',
+                                    message:
+                                        'No activity found in ${_formatMonthYear(_selectedDate)}.',
+                                  ),
+                                )
+                              else
+                                Card(
+                                  elevation: 2,
+                                  shadowColor: Colors.black.withOpacity(0.05),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      for (final tx in ledgerState.items)
+                                        TransactionTile(
+                                          tx: tx,
+                                          calendarMode: mode,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              if (ledgerState.error != null &&
+                                  ledgerState.items.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Text(
+                                    ledgerState.error.toString(),
+                                    style: const TextStyle(color: Colors.red),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              if (ledgerState.loadingMore)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                            ],
+                            const SizedBox(height: 40),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  bool _isSelectedWalletBlocked() {
-    for (final w in _wallets) {
-      if (w.id == _selectedWalletId) {
-        return w.status != 'active';
+  String? _resolveSelectedWalletId(List<CustomerWallet> wallets) {
+    final selectedWalletId = _selectedWalletId;
+    if (selectedWalletId != null &&
+        wallets.any((wallet) => wallet.id == selectedWalletId)) {
+      return selectedWalletId;
+    }
+    if (wallets.isEmpty) {
+      return null;
+    }
+    return wallets
+        .firstWhere((wallet) => wallet.isPrimary, orElse: () => wallets.first)
+        .id;
+  }
+
+  bool _isSelectedWalletBlocked(
+    List<CustomerWallet> wallets,
+    String? selectedWalletId,
+  ) {
+    for (final wallet in wallets) {
+      if (wallet.id == selectedWalletId) {
+        return !walletAllowsMoneyMovement(wallet.status);
       }
     }
     return false;
+  }
+}
+
+class _HistoryInfoCard extends StatelessWidget {
+  const _HistoryInfoCard({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(icon, color: const Color(0xFF6B7280)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+      ),
+    );
   }
 }

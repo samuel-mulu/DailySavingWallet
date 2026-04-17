@@ -2,13 +2,14 @@ import 'dart:async';
 
 import 'package:ethiopian_datetime/ethiopian_datetime.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/dates/date_formatters.dart';
 import '../../../core/settings/calendar_mode.dart';
 import '../../../core/money/money.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../data/wallet/models.dart';
-import '../../../data/wallet/wallet_repo.dart';
+import '../../wallet/wallet_providers.dart';
 
 enum BulkDailyDateStatus { success, skippedAlreadyRecorded, failed }
 
@@ -29,7 +30,8 @@ Future<void> showAdminBulkDailySavingSheet({
   required String customerId,
   required String customerName,
   required CustomerWallet wallet,
-  required Future<void> Function(WalletSnapshot? updatedSnapshot) onWalletUpdated,
+  required Future<void> Function(WalletSnapshot? updatedSnapshot)
+  onWalletUpdated,
   required VoidCallback onRefreshAfterBatch,
   VoidCallback? onOpenCustomerDetail,
 }) async {
@@ -48,7 +50,7 @@ Future<void> showAdminBulkDailySavingSheet({
   );
 }
 
-class _AdminBulkDailySavingSheet extends StatefulWidget {
+class _AdminBulkDailySavingSheet extends ConsumerStatefulWidget {
   const _AdminBulkDailySavingSheet({
     required this.customerId,
     required this.customerName,
@@ -66,16 +68,21 @@ class _AdminBulkDailySavingSheet extends StatefulWidget {
   final VoidCallback? onOpenCustomerDetail;
 
   @override
-  State<_AdminBulkDailySavingSheet> createState() => _AdminBulkDailySavingSheetState();
+  ConsumerState<_AdminBulkDailySavingSheet> createState() =>
+      _AdminBulkDailySavingSheetState();
 }
 
-class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> {
-  final WalletRepo _repo = WalletRepo();
+class _AdminBulkDailySavingSheetState
+    extends ConsumerState<_AdminBulkDailySavingSheet> {
   final TextEditingController _noteCtrl = TextEditingController();
   final Set<String> _selectedIsoDays = <String>{};
   final Map<String, Set<String>> _recordedByMonth = <String, Set<String>>{};
   final Set<String> _monthsLoading = <String>{};
-  DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _visibleMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
   bool _loadingRecorded = false;
   bool _running = false;
   int _processed = 0;
@@ -105,10 +112,12 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
 
   /// Single GET for one `yyyy-MM` bucket; no UI state.
   Future<Set<String>> _fetchRecordedDaysForMonth(String month) async {
-    final res = await _repo.fetchRecordedDailyPaymentDaysByMonth(
-      customerId: widget.customerId,
-      walletId: widget.wallet.id,
-      month: month,
+    final res = await ref.read(
+      recordedDailyDaysByMonthProvider((
+        customerId: widget.customerId,
+        walletId: widget.wallet.id,
+        month: month,
+      )).future,
     );
     return Set<String>.from(res.recordedTxDays);
   }
@@ -200,13 +209,21 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
         _currentIso = iso;
       });
       try {
-        final snap = await _repo.recordDailySaving(
+        ref.read(recordDailySavingMutationProvider.notifier).clear();
+        await ref.read(recordDailySavingMutationProvider.notifier).submit((
           customerId: widget.customerId,
           walletId: widget.wallet.id,
           amountCents: widget.wallet.dailyTargetCents,
-          txDateMillis: dateToTxMillis(DateTime.parse('${iso}T12:00:00.000Z').toLocal()),
+          txDateMillis: dateToTxMillis(
+            DateTime.parse('${iso}T12:00:00.000Z').toLocal(),
+          ),
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-        );
+        ));
+        final mutation = ref.read(recordDailySavingMutationProvider);
+        if (mutation.error != null) {
+          throw mutation.error!;
+        }
+        final snap = mutation.data;
         lastSuccessful = snap ?? lastSuccessful;
         _totalAddedCents += widget.wallet.dailyTargetCents;
         _results.add(
@@ -215,10 +232,13 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
             status: BulkDailyDateStatus.success,
           ),
         );
-        _recordedByMonth.putIfAbsent(iso.substring(0, 7), () => <String>{}).add(iso);
+        _recordedByMonth
+            .putIfAbsent(iso.substring(0, 7), () => <String>{})
+            .add(iso);
       } catch (e) {
         final message = '$e';
-        final skipped = message.contains('already exists') || message.contains('CONFLICT');
+        final skipped =
+            message.contains('already exists') || message.contains('CONFLICT');
         _results.add(
           BulkDailyDateResult(
             date: DateTime.parse('${iso}T12:00:00.000Z').toLocal(),
@@ -254,11 +274,15 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
   }
 
   void _showResultSheet() {
-    final success = _results.where((r) => r.status == BulkDailyDateStatus.success).length;
+    final success = _results
+        .where((r) => r.status == BulkDailyDateStatus.success)
+        .length;
     final skipped = _results
         .where((r) => r.status == BulkDailyDateStatus.skippedAlreadyRecorded)
         .length;
-    final failed = _results.where((r) => r.status == BulkDailyDateStatus.failed).length;
+    final failed = _results
+        .where((r) => r.status == BulkDailyDateStatus.failed)
+        .length;
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
@@ -271,11 +295,15 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
             children: [
               Text('${widget.customerName} • ${widget.wallet.label}'),
               const SizedBox(height: 8),
-              Text('Daily amount: ${MoneyEtb.formatCents(widget.wallet.dailyTargetCents)}'),
+              Text(
+                'Daily amount: ${MoneyEtb.formatCents(widget.wallet.dailyTargetCents)}',
+              ),
               Text('Success: $success • Skipped: $skipped • Failed: $failed'),
               Text('Total added: ${MoneyEtb.formatCents(_totalAddedCents)}'),
               if (_finalBalanceCents != null)
-                Text('Final balance: ${MoneyEtb.formatCents(_finalBalanceCents!)}'),
+                Text(
+                  'Final balance: ${MoneyEtb.formatCents(_finalBalanceCents!)}',
+                ),
               const SizedBox(height: 12),
               SizedBox(
                 height: 160,
@@ -291,7 +319,9 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                     return ListTile(
                       dense: true,
                       title: Text(_isoDay(r.date)),
-                      subtitle: r.error == null ? Text(status) : Text('$status • ${r.error}'),
+                      subtitle: r.error == null
+                          ? Text(status)
+                          : Text('$status • ${r.error}'),
                     );
                   },
                 ),
@@ -329,7 +359,10 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
   @override
   Widget build(BuildContext context) {
     if (_calendarModeService == null) {
-      return const SizedBox(height: 320, child: Center(child: CircularProgressIndicator()));
+      return const SizedBox(
+        height: 320,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     return ValueListenableBuilder<CalendarMode>(
       valueListenable: _calendarModeService!,
@@ -342,11 +375,15 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
     final month = _monthKey(_visibleMonth);
     final recorded = _recordedByMonth[month] ?? const <String>{};
     final selectedDates = _selectedIsoDays.toList()..sort();
-    final success = _results.where((r) => r.status == BulkDailyDateStatus.success).length;
+    final success = _results
+        .where((r) => r.status == BulkDailyDateStatus.success)
+        .length;
     final skipped = _results
         .where((r) => r.status == BulkDailyDateStatus.skippedAlreadyRecorded)
         .length;
-    final failed = _results.where((r) => r.status == BulkDailyDateStatus.failed).length;
+    final failed = _results
+        .where((r) => r.status == BulkDailyDateStatus.failed)
+        .length;
     final headerLabel = mode == CalendarMode.ethiopian
         ? _ethiopianMonthHeader(_visibleMonth)
         : month;
@@ -361,10 +398,15 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Bulk Daily Saving', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Bulk Daily Saving',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 8),
               Text('${widget.customerName} • ${widget.wallet.label}'),
-              Text('Amount per date: ${MoneyEtb.formatCents(widget.wallet.dailyTargetCents)}'),
+              Text(
+                'Amount per date: ${MoneyEtb.formatCents(widget.wallet.dailyTargetCents)}',
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -372,7 +414,11 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                     onPressed: _running
                         ? null
                         : () {
-                            final prev = DateTime(_visibleMonth.year, _visibleMonth.month - 1, 1);
+                            final prev = DateTime(
+                              _visibleMonth.year,
+                              _visibleMonth.month - 1,
+                              1,
+                            );
                             setState(() => _visibleMonth = prev);
                             unawaited(_loadRecordedMonth(_monthKey(prev)));
                           },
@@ -383,7 +429,11 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                     onPressed: _running
                         ? null
                         : () {
-                            final next = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 1);
+                            final next = DateTime(
+                              _visibleMonth.year,
+                              _visibleMonth.month + 1,
+                              1,
+                            );
                             setState(() => _visibleMonth = next);
                             unawaited(_loadRecordedMonth(_monthKey(next)));
                           },
@@ -425,10 +475,12 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                           color: isRecorded
                               ? Colors.grey.shade300
                               : selected
-                                  ? Colors.green.shade100
-                                  : null,
+                              ? Colors.green.shade100
+                              : null,
                           border: Border.all(
-                            color: selected ? Colors.green : Colors.grey.shade300,
+                            color: selected
+                                ? Colors.green
+                                : Colors.grey.shade300,
                           ),
                         ),
                         child: Center(
@@ -438,8 +490,12 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                                 : '${d.day}',
                             style: TextStyle(
                               color: isRecorded ? Colors.grey.shade700 : null,
-                              decoration: isRecorded ? TextDecoration.lineThrough : null,
-                              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                              decoration: isRecorded
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              fontWeight: selected
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
                             ),
                           ),
                         ),
@@ -458,7 +514,9 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
                         label: Text(
                           mode == CalendarMode.ethiopian
                               ? formatDateTime(
-                                  DateTime.parse('${d}T12:00:00.000Z').toLocal(),
+                                  DateTime.parse(
+                                    '${d}T12:00:00.000Z',
+                                  ).toLocal(),
                                   mode,
                                   locale: 'am',
                                 )
@@ -496,7 +554,9 @@ class _AdminBulkDailySavingSheetState extends State<_AdminBulkDailySavingSheet> 
               ],
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _running || _selectedIsoDays.isEmpty ? null : _runBatch,
+                onPressed: _running || _selectedIsoDays.isEmpty
+                    ? null
+                    : _runBatch,
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Run bulk daily saving'),
               ),

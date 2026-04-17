@@ -3,15 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/data/stale_fetch_state.dart';
+import '../../core/data/paged_list_state.dart';
 import '../../core/money/money.dart';
 import '../../core/ui/empty_state.dart';
 import '../../core/ui/filter_count_chip.dart';
 import '../../data/customers/customer_model.dart';
-import '../../data/customers/customer_repo.dart';
 import '../../data/wallet/models.dart';
-import '../../data/wallet/wallet_repo.dart';
-import '../withdrawals/pending_withdrawals_provider.dart';
+import '../data/repository_providers.dart';
+import '../wallet/wallet_providers.dart';
 import 'customers/customer_detail_screen.dart';
 import 'customers/widgets/customer_profile_avatar.dart';
 
@@ -29,88 +28,42 @@ enum _ApprovalQueue { pending, approved, rejected }
 
 class _WithdrawApprovalsScreenState
     extends ConsumerState<WithdrawApprovalsScreen> {
-  final _repo = WalletRepo();
-  final _customerRepo = CustomerRepo();
-  final _busyIds = <String>{};
-  final _customerFutures = <String, Future<Customer?>>{};
-  final _walletFutures = <String, Future<WalletSnapshot?>>{};
-
   _ApprovalQueue _queue = _ApprovalQueue.pending;
-  late Future<List<WithdrawRequest>> _approvedFuture;
-  late Future<List<WithdrawRequest>> _rejectedFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _approvedFuture = _loadRequestsByStatus('APPROVED');
-    _rejectedFuture = _loadRequestsByStatus('REJECTED');
-  }
-
-  bool _isBusy(String id) => _busyIds.contains(id);
-
-  void _setBusy(String id, bool value) {
-    setState(() {
-      if (value) {
-        _busyIds.add(id);
-      } else {
-        _busyIds.remove(id);
-      }
-    });
-  }
-
-  Future<List<WithdrawRequest>> _loadRequestsByStatus(String status) async {
-    final items = await _repo.fetchWithdrawRequests(status: status, limit: 60);
-    final sorted = [...items];
-    sorted.sort((a, b) {
-      final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return bTime.compareTo(aTime);
-    });
-    return sorted;
-  }
-
-  void _refreshReviewed() {
-    setState(() {
-      _approvedFuture = _loadRequestsByStatus('APPROVED');
-      _rejectedFuture = _loadRequestsByStatus('REJECTED');
-    });
-  }
 
   Future<void> _refreshAll() async {
-    await ref
-        .read(pendingWithdrawalsStaleProvider.notifier)
-        .refresh(force: true);
-    _refreshReviewed();
-  }
-
-  Future<Customer?> _loadCustomer(String customerId) {
-    return _customerFutures.putIfAbsent(
-      customerId,
-      () => _customerRepo.getCustomer(customerId),
-    );
-  }
-
-  Future<WalletSnapshot?> _loadWallet(WithdrawRequest request) {
-    final walletId = request.walletId;
-    if (walletId == null || walletId.isEmpty) {
-      return Future.value(null);
-    }
-    final key = '${request.customerId}:$walletId';
-    return _walletFutures.putIfAbsent(
-      key,
-      () => _repo.fetchWallet(request.customerId, walletId: walletId),
-    );
+    await Future.wait([
+      ref
+          .read(withdrawRequestListProvider(pendingWithdrawListQuery).notifier)
+          .refresh(force: true),
+      ref
+          .read(withdrawRequestListProvider(approvedWithdrawListQuery).notifier)
+          .refresh(force: true),
+      ref
+          .read(withdrawRequestListProvider(rejectedWithdrawListQuery).notifier)
+          .refresh(force: true),
+    ]);
+    ref.read(withdrawReviewMutationProvider.notifier).clear();
   }
 
   Future<int?> _confirmApprove(WithdrawRequest request) async {
-    final customer = await _loadCustomer(request.customerId);
-    final wallet = await _loadWallet(request);
+    final customer = await ref.read(
+      customerByIdProvider(request.customerId).future,
+    );
+    WalletSnapshot? wallet;
+    final walletId = request.walletId;
+    if (walletId != null && walletId.isNotEmpty) {
+      wallet = await ref.read(
+        requestWalletLookupProvider((
+          customerId: request.customerId,
+          walletId: walletId,
+        )).future,
+      );
+    }
     if (!mounted) return null;
 
     return showDialog<int>(
       context: context,
       builder: (context) => _ApproveWithdrawDialog(
-        repo: _repo,
         request: request,
         customer: customer,
         wallet: wallet,
@@ -146,7 +99,9 @@ class _WithdrawApprovalsScreenState
   }
 
   Future<bool> _confirmReject(WithdrawRequest request, String? note) async {
-    final customer = await _loadCustomer(request.customerId);
+    final customer = await ref.read(
+      customerByIdProvider(request.customerId).future,
+    );
     if (!mounted) return false;
     final result = await showDialog<bool>(
       context: context,
@@ -188,26 +143,22 @@ class _WithdrawApprovalsScreenState
   }) async {
     final approvedAmountCents = await _confirmApprove(request);
     if (!mounted || approvedAmountCents == null) return;
-    _setBusy(request.id, true);
     try {
-      await _repo.approveWithdraw(
-        request.id,
+      await ref.read(withdrawReviewMutationProvider.notifier).submit((
+        requestId: request.id,
+        approve: true,
         amountCents: approvedAmountCents,
-      );
-      ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);
-      unawaited(
-        ref.read(pendingWithdrawalsStaleProvider.notifier).refresh(force: true),
-      );
-      _refreshReviewed();
+        note: null,
+      ));
+      final actionState = ref.read(withdrawReviewMutationProvider);
+      if (actionState.error != null) {
+        _snack(actionState.error.toString());
+        return;
+      }
       _snack('Approved.');
       onCompleted?.call();
     } catch (e) {
-      await ref
-          .read(pendingWithdrawalsStaleProvider.notifier)
-          .refresh(force: true);
       _snack(e.toString());
-    } finally {
-      if (mounted) _setBusy(request.id, false);
     }
   }
 
@@ -219,23 +170,22 @@ class _WithdrawApprovalsScreenState
     if (!mounted || note == null) return;
     final ok = await _confirmReject(request, note);
     if (!mounted || !ok) return;
-    _setBusy(request.id, true);
     try {
-      await _repo.rejectWithdraw(request.id, note: note);
-      ref.read(pendingWithdrawalsStaleProvider.notifier).removeById(request.id);
-      unawaited(
-        ref.read(pendingWithdrawalsStaleProvider.notifier).refresh(force: true),
-      );
-      _refreshReviewed();
+      await ref.read(withdrawReviewMutationProvider.notifier).submit((
+        requestId: request.id,
+        approve: false,
+        amountCents: null,
+        note: note,
+      ));
+      final actionState = ref.read(withdrawReviewMutationProvider);
+      if (actionState.error != null) {
+        _snack(actionState.error.toString());
+        return;
+      }
       _snack('Rejected.');
       onCompleted?.call();
     } catch (e) {
-      await ref
-          .read(pendingWithdrawalsStaleProvider.notifier)
-          .refresh(force: true);
       _snack(e.toString());
-    } finally {
-      if (mounted) _setBusy(request.id, false);
     }
   }
 
@@ -273,12 +223,6 @@ class _WithdrawApprovalsScreenState
     return '${localizations.formatMediumDate(value)} ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(value))}';
   }
 
-  Future<_RequestSheetData> _loadSheetData(WithdrawRequest request) async {
-    final customer = await _loadCustomer(request.customerId);
-    final wallet = await _loadWallet(request);
-    return _RequestSheetData(customer: customer, wallet: wallet);
-  }
-
   Future<void> _showRequestModal(WithdrawRequest request) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -287,19 +231,25 @@ class _WithdrawApprovalsScreenState
       builder: (sheetContext) => SafeArea(
         child: FractionallySizedBox(
           heightFactor: 0.88,
-          child: FutureBuilder<_RequestSheetData>(
-            future: _loadSheetData(request),
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting &&
-                  !snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final data =
-                  snap.data ??
-                  const _RequestSheetData(customer: null, wallet: null);
-              final customer = data.customer;
-              final wallet = data.wallet;
+          child: Consumer(
+            builder: (context, ref, _) {
+              final customerAsync = ref.watch(
+                customerByIdProvider(request.customerId),
+              );
+              final walletId = request.walletId;
+              final walletAsync = walletId == null || walletId.isEmpty
+                  ? const AsyncValue<WalletSnapshot?>.data(null)
+                  : ref.watch(
+                      requestWalletLookupProvider((
+                        customerId: request.customerId,
+                        walletId: walletId,
+                      )),
+                    );
+              final customer = customerAsync.valueOrNull;
+              final wallet = walletAsync.valueOrNull;
+              final actionState = ref.watch(withdrawReviewMutationProvider);
+              final isBusy =
+                  actionState.isLoading && actionState.data == request.id;
               final statusColor = _statusColor(
                 request.status,
                 Theme.of(context),
@@ -458,7 +408,7 @@ class _WithdrawApprovalsScreenState
                           children: [
                             Expanded(
                               child: FilledButton.icon(
-                                onPressed: _isBusy(request.id)
+                                onPressed: isBusy
                                     ? null
                                     : () => _approveRequest(
                                         request,
@@ -475,7 +425,7 @@ class _WithdrawApprovalsScreenState
                             const SizedBox(width: 10),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _isBusy(request.id)
+                                onPressed: isBusy
                                     ? null
                                     : () => _rejectRequest(
                                         request,
@@ -522,8 +472,16 @@ class _WithdrawApprovalsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final stale = ref.watch(pendingWithdrawalsStaleProvider);
-    final pendingItems = stale.data ?? const <WithdrawRequest>[];
+    final pendingState = ref.watch(
+      withdrawRequestListProvider(pendingWithdrawListQuery),
+    );
+    final approvedState = ref.watch(
+      withdrawRequestListProvider(approvedWithdrawListQuery),
+    );
+    final rejectedState = ref.watch(
+      withdrawRequestListProvider(rejectedWithdrawListQuery),
+    );
+    final pendingItems = pendingState.items;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -549,7 +507,7 @@ class _WithdrawApprovalsScreenState
                   const SizedBox(width: 8),
                   FilterCountChip(
                     label: 'Approved',
-                    count: null,
+                    count: approvedState.items.length,
                     selected: _queue == _ApprovalQueue.approved,
                     icon: Icons.check_circle_outline,
                     onTap: () =>
@@ -558,7 +516,7 @@ class _WithdrawApprovalsScreenState
                   const SizedBox(width: 8),
                   FilterCountChip(
                     label: 'Rejected',
-                    count: null,
+                    count: rejectedState.items.length,
                     selected: _queue == _ApprovalQueue.rejected,
                     icon: Icons.cancel_outlined,
                     onTap: () =>
@@ -570,15 +528,15 @@ class _WithdrawApprovalsScreenState
           ),
           Expanded(
             child: switch (_queue) {
-              _ApprovalQueue.pending => _buildPendingView(stale, pendingItems),
+              _ApprovalQueue.pending => _buildPendingView(pendingState),
               _ApprovalQueue.approved => _buildReviewedView(
-                future: _approvedFuture,
+                state: approvedState,
                 emptyTitle: 'No approved requests yet',
                 emptyMessage:
                     'Approved withdrawals will appear here after review.',
               ),
               _ApprovalQueue.rejected => _buildReviewedView(
-                future: _rejectedFuture,
+                state: rejectedState,
                 emptyTitle: 'No rejected requests yet',
                 emptyMessage:
                     'Rejected withdrawals will appear here after review.',
@@ -590,11 +548,9 @@ class _WithdrawApprovalsScreenState
     );
   }
 
-  Widget _buildPendingView(
-    StaleFetchState<List<WithdrawRequest>> stale,
-    List<WithdrawRequest> items,
-  ) {
-    if (stale.data == null && stale.isRefreshing) {
+  Widget _buildPendingView(PagedListState<WithdrawRequest> state) {
+    final items = state.items;
+    if (state.isRefreshing && items.isEmpty) {
       return ListView(
         children: const [
           SizedBox(height: 120),
@@ -603,11 +559,11 @@ class _WithdrawApprovalsScreenState
       );
     }
 
-    if (stale.error != null && items.isEmpty) {
+    if (state.error != null && items.isEmpty) {
       return ListView(
         children: [
           const SizedBox(height: 120),
-          Center(child: Text(stale.error.toString())),
+          Center(child: Text(state.error.toString())),
         ],
       );
     }
@@ -633,7 +589,7 @@ class _WithdrawApprovalsScreenState
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          if (stale.isRefreshing)
+          if (state.isRefreshing)
             const Padding(
               padding: EdgeInsets.only(bottom: 10),
               child: LinearProgressIndicator(minHeight: 2),
@@ -652,73 +608,69 @@ class _WithdrawApprovalsScreenState
   }
 
   Widget _buildReviewedView({
-    required Future<List<WithdrawRequest>> future,
+    required PagedListState<WithdrawRequest> state,
     required String emptyTitle,
     required String emptyMessage,
   }) {
-    return FutureBuilder<List<WithdrawRequest>>(
-      future: future,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return ListView(
-            children: const [
-              SizedBox(height: 120),
-              Center(child: CircularProgressIndicator()),
-            ],
-          );
-        }
-
-        if (snap.hasError) {
-          return ListView(
-            children: [
-              const SizedBox(height: 120),
-              Center(child: Text('${snap.error}')),
-            ],
-          );
-        }
-
-        final items = snap.data ?? const <WithdrawRequest>[];
-        if (items.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _refreshAll,
-            child: ListView(
-              children: [
-                const SizedBox(height: 80),
-                EmptyState(
-                  icon: _queue == _ApprovalQueue.approved
-                      ? Icons.check_circle_outline
-                      : Icons.cancel_outlined,
-                  title: emptyTitle,
-                  message: emptyMessage,
-                ),
-              ],
+    final items = state.items;
+    if (state.isRefreshing && items.isEmpty) {
+      return ListView(
+        children: const [
+          SizedBox(height: 120),
+          Center(child: CircularProgressIndicator()),
+        ],
+      );
+    }
+    if (state.error != null && items.isEmpty) {
+      return ListView(
+        children: [
+          const SizedBox(height: 120),
+          Center(child: Text('${state.error}')),
+        ],
+      );
+    }
+    if (items.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _refreshAll,
+        child: ListView(
+          children: [
+            const SizedBox(height: 80),
+            EmptyState(
+              icon: _queue == _ApprovalQueue.approved
+                  ? Icons.check_circle_outline
+                  : Icons.cancel_outlined,
+              title: emptyTitle,
+              message: emptyMessage,
             ),
-          );
-        }
-
-        final summaryColor = _queue == _ApprovalQueue.approved
-            ? const Color(0xFF10B981)
-            : Theme.of(context).colorScheme.error;
-
-        return RefreshIndicator(
-          onRefresh: _refreshAll,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            children: [
-              _QueueSummaryCard(
-                title: _queue == _ApprovalQueue.approved
-                    ? 'Approved withdrawals'
-                    : 'Rejected withdrawals',
-                subtitle:
-                    '${items.length} request${items.length == 1 ? '' : 's'} in this queue',
-                color: summaryColor,
-              ),
-              const SizedBox(height: 12),
-              ..._buildRequestCards(items, showActions: false),
-            ],
+          ],
+        ),
+      );
+    }
+    final summaryColor = _queue == _ApprovalQueue.approved
+        ? const Color(0xFF10B981)
+        : Theme.of(context).colorScheme.error;
+    return RefreshIndicator(
+      onRefresh: _refreshAll,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          if (state.isRefreshing)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          _QueueSummaryCard(
+            title: _queue == _ApprovalQueue.approved
+                ? 'Approved withdrawals'
+                : 'Rejected withdrawals',
+            subtitle:
+                '${items.length} request${items.length == 1 ? '' : 's'} in this queue',
+            color: summaryColor,
           ),
-        );
-      },
+          const SizedBox(height: 12),
+          ..._buildRequestCards(items, showActions: false),
+        ],
+      ),
     );
   }
 
@@ -726,12 +678,12 @@ class _WithdrawApprovalsScreenState
     List<WithdrawRequest> items, {
     required bool showActions,
   }) {
+    final actionState = ref.watch(withdrawReviewMutationProvider);
     return [
       for (var index = 0; index < items.length; index++) ...[
         _RequestCard(
           request: items[index],
-          busy: _isBusy(items[index].id),
-          customerFuture: _loadCustomer(items[index].customerId),
+          busy: actionState.isLoading && actionState.data == items[index].id,
           statusColor: _statusColor(items[index].status, Theme.of(context)),
           statusLabel: _statusLabel(items[index].status),
           showActions: showActions,
@@ -745,31 +697,24 @@ class _WithdrawApprovalsScreenState
   }
 }
 
-class _RequestSheetData {
-  const _RequestSheetData({required this.customer, required this.wallet});
-
-  final Customer? customer;
-  final WalletSnapshot? wallet;
-}
-
-class _ApproveWithdrawDialog extends StatefulWidget {
+class _ApproveWithdrawDialog extends ConsumerStatefulWidget {
   const _ApproveWithdrawDialog({
-    required this.repo,
     required this.request,
     required this.customer,
     required this.wallet,
   });
 
-  final WalletRepo repo;
   final WithdrawRequest request;
   final Customer? customer;
   final WalletSnapshot? wallet;
 
   @override
-  State<_ApproveWithdrawDialog> createState() => _ApproveWithdrawDialogState();
+  ConsumerState<_ApproveWithdrawDialog> createState() =>
+      _ApproveWithdrawDialogState();
 }
 
-class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
+class _ApproveWithdrawDialogState
+    extends ConsumerState<_ApproveWithdrawDialog> {
   late final TextEditingController _amountCtrl;
   Timer? _previewDebounce;
   late WithdrawPreview _preview;
@@ -824,9 +769,9 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
 
   Future<void> _syncPreview(int amountCents) async {
     try {
-      final preview = await widget.repo.previewWithdraw(
-        amountCents: amountCents,
-      );
+      final preview = await ref
+          .read(walletRepoProvider)
+          .previewWithdraw(amountCents: amountCents);
       if (!mounted || _tryParseAmountCents() != amountCents) return;
       setState(() {
         _preview = preview;
@@ -845,7 +790,9 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
     final amountCents = _tryParseAmountCents();
     final amountIsValid = amountCents != null;
     final currentBalance = wallet?.balanceCents ?? 0;
-    final approvedDebitCents = amountIsValid ? _preview.requestedAmountCents : 0;
+    final approvedDebitCents = amountIsValid
+        ? _preview.requestedAmountCents
+        : 0;
     final afterBalance = currentBalance - approvedDebitCents;
     final limitCents = wallet?.creditLimitCents ?? 0;
     final debtCents = afterBalance < 0 ? -afterBalance : 0;
@@ -986,11 +933,10 @@ class _ApproveWithdrawDialogState extends State<_ApproveWithdrawDialog> {
   }
 }
 
-class _RequestCard extends StatelessWidget {
+class _RequestCard extends ConsumerWidget {
   const _RequestCard({
     required this.request,
     required this.busy,
-    required this.customerFuture,
     required this.statusColor,
     required this.statusLabel,
     required this.showActions,
@@ -1001,7 +947,6 @@ class _RequestCard extends StatelessWidget {
 
   final WithdrawRequest request;
   final bool busy;
-  final Future<Customer?> customerFuture;
   final Color statusColor;
   final String statusLabel;
   final bool showActions;
@@ -1010,8 +955,10 @@ class _RequestCard extends StatelessWidget {
   final VoidCallback? onReject;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = Theme.of(context).colorScheme;
+    final customerAsync = ref.watch(customerByIdProvider(request.customerId));
+    final customer = customerAsync.valueOrNull;
 
     return Material(
       color: colorScheme.surface,
@@ -1036,56 +983,43 @@ class _RequestCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FutureBuilder<Customer?>(
-                  future: customerFuture,
-                  builder: (context, snap) {
-                    final customer = snap.data;
-                    return Row(
-                      children: [
-                        if (customer != null)
-                          CustomerProfileAvatar(
-                            customer: customer,
-                            radius: 22,
-                            enablePreview: true,
-                          )
-                        else
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor: statusColor.withValues(
-                              alpha: 0.12,
-                            ),
-                            child: Icon(
-                              Icons.person_outline,
-                              color: statusColor,
-                            ),
+                Row(
+                  children: [
+                    if (customer != null)
+                      CustomerProfileAvatar(
+                        customer: customer,
+                        radius: 22,
+                        enablePreview: true,
+                      )
+                    else
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: statusColor.withValues(alpha: 0.12),
+                        child: Icon(Icons.person_outline, color: statusColor),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            customer?.fullName ?? 'Loading customer...',
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                customer?.fullName ?? 'Loading customer...',
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                customer == null
-                                    ? request.customerId
-                                    : '${customer.companyName} - ${customer.phone}',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
+                          const SizedBox(height: 2),
+                          Text(
+                            customer == null
+                                ? request.customerId
+                                : '${customer.companyName} - ${customer.phone}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
                           ),
-                        ),
-                        _StatusChip(label: statusLabel, color: statusColor),
-                      ],
-                    );
-                  },
+                        ],
+                      ),
+                    ),
+                    _StatusChip(label: statusLabel, color: statusColor),
+                  ],
                 ),
                 const SizedBox(height: 14),
                 Row(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:printing/printing.dart';
 
 import '../../../core/dates/date_formatters.dart';
@@ -6,19 +7,18 @@ import '../../../core/money/money.dart';
 import '../../../core/settings/calendar_mode.dart';
 import '../../../core/ui/date_selector.dart';
 import '../../../data/wallet/models.dart';
-import '../../../data/wallet/wallet_repo.dart';
+import '../../wallet/wallet_providers.dart';
 import '../../wallet/widgets/transaction_tile.dart';
 import 'admin_reports_pdf.dart';
 
-class AdminReportsTab extends StatefulWidget {
+class AdminReportsTab extends ConsumerStatefulWidget {
   const AdminReportsTab({super.key});
 
   @override
-  State<AdminReportsTab> createState() => _AdminReportsTabState();
+  ConsumerState<AdminReportsTab> createState() => _AdminReportsTabState();
 }
 
-class _AdminReportsTabState extends State<AdminReportsTab> {
-  final _repo = WalletRepo();
+class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
   DateTime _selectedDate = DateTime.now();
   int _dailyReportNonce = 0;
   int _monthlyReportNonce = 0;
@@ -119,9 +119,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                     Expanded(
                       child: Text(
                         'Reports',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                     IconButton(
@@ -136,7 +135,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: DateSelector(
                   selectedDate: _selectedDate,
-                  onDateChanged: (value) => setState(() => _selectedDate = value),
+                  onDateChanged: (value) =>
+                      setState(() => _selectedDate = value),
                 ),
               ),
               Padding(
@@ -160,7 +160,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                 child: TabBarView(
                   children: [
                     RefreshIndicator(
-                      onRefresh: () async => setState(() => _dailyReportNonce++),
+                      onRefresh: () async =>
+                          setState(() => _dailyReportNonce++),
                       child: ListView(
                         padding: const EdgeInsets.all(16),
                         children: [
@@ -168,8 +169,9 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                             key: ValueKey<String>(
                               'd_${_txDay}_$_dailyReportNonce',
                             ),
-                            load: () =>
-                                _repo.fetchDailySavingsActivityReport(_txDay),
+                            load: () => ref.read(
+                              dailySavingsActivityReportProvider(_txDay).future,
+                            ),
                             builder: (context, snap) {
                               if (snap.hasError) {
                                 return _ReportErrorCard(
@@ -218,8 +220,9 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                             key: ValueKey<String>(
                               'm_${_month}_$_monthlyReportNonce',
                             ),
-                            load: () =>
-                                _repo.fetchMonthlySavingsReport(_month),
+                            load: () => ref.read(
+                              monthlySavingsReportProvider(_month).future,
+                            ),
                             builder: (context, snap) {
                               if (snap.hasError) {
                                 return _ReportErrorCard(
@@ -239,8 +242,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                               }
                               final data =
                                   snap.data ?? const <String, dynamic>{};
-                              final daily = (data['daily'] as List?) ??
-                                  const <dynamic>[];
+                              final daily =
+                                  (data['daily'] as List?) ?? const <dynamic>[];
                               return _ReportCard(
                                 title: 'Monthly overview',
                                 accentColor: const Color(0xFF0EA5E9),
@@ -292,7 +295,10 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       );
       final day = '${data['activityDay'] ?? _txDay}'.replaceAll('-', '');
       if (!context.mounted) return;
-      await Printing.sharePdf(bytes: bytes, filename: 'daily-activity-$day.pdf');
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'daily-activity-$day.pdf',
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Daily PDF is ready to download/share.')),
@@ -321,10 +327,15 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       );
       final m = '${data['month'] ?? _month}'.replaceAll('-', '');
       if (!context.mounted) return;
-      await Printing.sharePdf(bytes: bytes, filename: 'monthly-overview-$m.pdf');
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'monthly-overview-$m.pdf',
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Monthly PDF is ready to download/share.')),
+        const SnackBar(
+          content: Text('Monthly PDF is ready to download/share.'),
+        ),
       );
     } catch (e) {
       if (!context.mounted) return;
@@ -345,7 +356,9 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
       ..sort((a, b) {
         final n = '${a['customerName']}'.compareTo('${b['customerName']}');
         if (n != 0) return n;
-        final d = '${a['coveredTxDay'] ?? ''}'.compareTo('${b['coveredTxDay'] ?? ''}');
+        final d = '${a['coveredTxDay'] ?? ''}'.compareTo(
+          '${b['coveredTxDay'] ?? ''}',
+        );
         if (d != 0) return d;
         return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
       });
@@ -385,12 +398,17 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.picture_as_pdf_outlined),
-                    label: Text(_dailyPdfBusy ? 'Generating...' : 'Generate PDF'),
+                    label: Text(
+                      _dailyPdfBusy ? 'Generating...' : 'Generate PDF',
+                    ),
                   ),
                 ],
               ),
               Text(
-                _formatReportIsoDay('${data['activityDay'] ?? ''}', calendarMode),
+                _formatReportIsoDay(
+                  '${data['activityDay'] ?? ''}',
+                  calendarMode,
+                ),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -415,10 +433,8 @@ class _AdminReportsTabState extends State<AdminReportsTab> {
                 )
               else
                 ...lines.map(
-                  (row) => _ActivityLineTile(
-                    row: row,
-                    calendarMode: calendarMode,
-                  ),
+                  (row) =>
+                      _ActivityLineTile(row: row, calendarMode: calendarMode),
                 ),
             ],
           );
@@ -599,10 +615,7 @@ int _reportIntFromJson(Object? value) {
 }
 
 class _DailyActivityReportSummary extends StatelessWidget {
-  const _DailyActivityReportSummary({
-    required this.data,
-    this.compact = false,
-  });
+  const _DailyActivityReportSummary({required this.data, this.compact = false});
 
   final Map<String, dynamic> data;
   final bool compact;
@@ -625,11 +638,7 @@ class _DailyActivityReportSummary extends StatelessWidget {
         '${data['distinctWalletCount'] ?? 0}',
         Icons.account_balance_wallet_outlined,
       ),
-      _StatItem(
-        'Payments',
-        '$paymentCount',
-        Icons.receipt_long_outlined,
-      ),
+      _StatItem('Payments', '$paymentCount', Icons.receipt_long_outlined),
     ];
 
     return Column(
@@ -661,7 +670,11 @@ class _DailyActivityReportSummary extends StatelessWidget {
           children: stats
               .map(
                 (s) => Chip(
-                  avatar: Icon(s.icon, size: 18, color: const Color(0xFF047857)),
+                  avatar: Icon(
+                    s.icon,
+                    size: 18,
+                    color: const Color(0xFF047857),
+                  ),
                   label: Text('${s.label}: ${s.value}'),
                   visualDensity: VisualDensity.compact,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -737,10 +750,7 @@ class _MonthlyReportSummary extends StatelessWidget {
 }
 
 class _ActivityLineTile extends StatelessWidget {
-  const _ActivityLineTile({
-    required this.row,
-    required this.calendarMode,
-  });
+  const _ActivityLineTile({required this.row, required this.calendarMode});
 
   final Map<String, dynamic> row;
   final CalendarMode calendarMode;
@@ -760,8 +770,8 @@ class _ActivityLineTile extends StatelessWidget {
     final createdAt = createdRaw is String
         ? DateTime.tryParse(createdRaw)
         : createdRaw is DateTime
-            ? createdRaw
-            : null;
+        ? createdRaw
+        : null;
     final sub = <String>[
       if (company.isNotEmpty) company,
       if (wallet.isNotEmpty) wallet,
@@ -778,11 +788,7 @@ class _ActivityLineTile extends StatelessWidget {
         ),
         subtitle: sub.isEmpty
             ? null
-            : Text(
-                sub,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
+            : Text(sub, maxLines: 3, overflow: TextOverflow.ellipsis),
         trailing: Text(
           MoneyEtb.formatCents(amount),
           style: theme.textTheme.titleSmall?.copyWith(
@@ -864,16 +870,16 @@ class _CompanyWalletEntryCard extends StatelessWidget {
   }
 }
 
-class _CompanyWalletReportPage extends StatefulWidget {
+class _CompanyWalletReportPage extends ConsumerStatefulWidget {
   const _CompanyWalletReportPage();
 
   @override
-  State<_CompanyWalletReportPage> createState() =>
+  ConsumerState<_CompanyWalletReportPage> createState() =>
       _CompanyWalletReportPageState();
 }
 
-class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
-  final _repo = WalletRepo();
+class _CompanyWalletReportPageState
+    extends ConsumerState<_CompanyWalletReportPage> {
   CalendarModeService? _calendarService;
 
   @override
@@ -896,203 +902,206 @@ class _CompanyWalletReportPageState extends State<_CompanyWalletReportPage> {
       valueListenable: _calendarService!,
       builder: (context, calendarMode, _) {
         return Scaffold(
-      appBar: AppBar(title: const Text('Company Wallet')),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _repo.fetchCompanyWalletReport(limit: 60),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(child: Text('${snap.error}'));
-          }
+          appBar: AppBar(title: const Text('Company Wallet')),
+          body: FutureBuilder<Map<String, dynamic>>(
+            future: ref.read(companyWalletReportProvider(60).future),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return Center(child: Text('${snap.error}'));
+              }
 
-          final data = snap.data ?? const <String, dynamic>{};
-          final wallet = (data['wallet'] as Map?) ?? const {};
-          final summary = (data['summary'] as Map?) ?? const {};
-          final history = (data['history'] as List?) ?? const [];
-          final isProvisioned = wallet['isProvisioned'] != false;
-          final balanceCents = _toInt(wallet['balanceCents']);
-          final feeRevenueCents = _toInt(summary['feeRevenueCents']);
-          final feeEntryCount = _toInt(summary['feeEntryCount']);
-          final isNegative = balanceCents < 0;
-          final headerColor = isNegative
-              ? const Color(0xFFEF5350)
-              : const Color(0xFF0EA5E9);
-          final accentColor = isNegative
-              ? const Color(0xFFE57373)
-              : const Color(0xFF2DD4BF);
+              final data = snap.data ?? const <String, dynamic>{};
+              final wallet = (data['wallet'] as Map?) ?? const {};
+              final summary = (data['summary'] as Map?) ?? const {};
+              final history = (data['history'] as List?) ?? const [];
+              final isProvisioned = wallet['isProvisioned'] != false;
+              final balanceCents = _toInt(wallet['balanceCents']);
+              final feeRevenueCents = _toInt(summary['feeRevenueCents']);
+              final feeEntryCount = _toInt(summary['feeEntryCount']);
+              final isNegative = balanceCents < 0;
+              final headerColor = isNegative
+                  ? const Color(0xFFEF5350)
+                  : const Color(0xFF0EA5E9);
+              final accentColor = isNegative
+                  ? const Color(0xFFE57373)
+                  : const Color(0xFF2DD4BF);
 
-          return RefreshIndicator(
-            onRefresh: () async => setState(() {}),
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [headerColor, accentColor],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(26),
-                    boxShadow: [
-                      BoxShadow(
-                        color: headerColor.withValues(alpha: 0.25),
-                        blurRadius: 18,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${wallet['displayName'] ?? 'Company Wallet'}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
+              return RefreshIndicator(
+                onRefresh: () async => setState(() {}),
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [headerColor, accentColor],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                        if ((wallet['code'] as String?)?.isNotEmpty ==
-                            true) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '${wallet['code']}',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.82),
-                            ),
+                        borderRadius: BorderRadius.circular(26),
+                        boxShadow: [
+                          BoxShadow(
+                            color: headerColor.withValues(alpha: 0.25),
+                            blurRadius: 18,
+                            offset: const Offset(0, 10),
                           ),
                         ],
-                        const SizedBox(height: 18),
-                        Text(
-                          'Current Balance',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            letterSpacing: 0.6,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          MoneyEtb.formatCents(balanceCents),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _WalletInfoChip(
-                              label: 'Status ${wallet['status'] ?? 'ACTIVE'}',
+                            Text(
+                              '${wallet['displayName'] ?? 'Company Wallet'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                            _WalletInfoChip(
-                              label:
-                                  '${history.length} history item${history.length == 1 ? '' : 's'}',
+                            if ((wallet['code'] as String?)?.isNotEmpty ==
+                                true) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${wallet['code']}',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.82),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 18),
+                            Text(
+                              'Current Balance',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.8),
+                                letterSpacing: 0.6,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              MoneyEtb.formatCents(balanceCents),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 34,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _WalletInfoChip(
+                                  label:
+                                      'Status ${wallet['status'] ?? 'ACTIVE'}',
+                                ),
+                                _WalletInfoChip(
+                                  label:
+                                      '${history.length} history item${history.length == 1 ? '' : 's'}',
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (!isProvisioned)
+                      Card(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        child: const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Text(
+                            'Company wallet is not provisioned yet. Showing safe zero values.',
+                          ),
+                        ),
+                      ),
+                    if (!isProvisioned) const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _WalletStatCard(
+                            label: 'Fee Revenue',
+                            value: MoneyEtb.formatCents(feeRevenueCents),
+                            color: const Color(0xFF10B981),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _WalletStatCard(
+                            label: 'Fee Entries',
+                            value: '$feeEntryCount',
+                            color: const Color(0xFFF59E0B),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (!isProvisioned)
-                  Card(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'Company wallet is not provisioned yet. Showing safe zero values.',
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _WalletStatCard(
+                            label: 'Status',
+                            value: '${wallet['status'] ?? 'ACTIVE'}',
+                            color: const Color(0xFF8B5CF6),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _WalletStatCard(
+                            label: 'Recent Entries',
+                            value: '${history.length}',
+                            color: const Color(0xFF0EA5E9),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'History',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                if (!isProvisioned) const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _WalletStatCard(
-                        label: 'Fee Revenue',
-                        value: MoneyEtb.formatCents(feeRevenueCents),
-                        color: const Color(0xFF10B981),
+                    const SizedBox(height: 8),
+                    if (history.isEmpty)
+                      const Card(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(
+                            child: Text('No company wallet history yet.'),
+                          ),
+                        ),
+                      )
+                    else
+                      Card(
+                        child: Column(
+                          children: history
+                              .map(
+                                (entry) => TransactionTile(
+                                  tx: LedgerTx.fromBackendMap(
+                                    Map<String, dynamic>.from(entry as Map),
+                                  ),
+                                  calendarMode: calendarMode,
+                                ),
+                              )
+                              .toList(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _WalletStatCard(
-                        label: 'Fee Entries',
-                        value: '$feeEntryCount',
-                        color: const Color(0xFFF59E0B),
-                      ),
-                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _WalletStatCard(
-                        label: 'Status',
-                        value: '${wallet['status'] ?? 'ACTIVE'}',
-                        color: const Color(0xFF8B5CF6),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _WalletStatCard(
-                        label: 'Recent Entries',
-                        value: '${history.length}',
-                        color: const Color(0xFF0EA5E9),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'History',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (history.isEmpty)
-                  const Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(
-                        child: Text('No company wallet history yet.'),
-                      ),
-                    ),
-                  )
-                else
-                  Card(
-                    child: Column(
-                      children: history
-                          .map(
-                            (entry) => TransactionTile(
-                              tx: LedgerTx.fromBackendMap(
-                                Map<String, dynamic>.from(entry as Map),
-                              ),
-                              calendarMode: calendarMode,
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+              );
+            },
+          ),
+        );
       },
     );
   }
@@ -1317,10 +1326,7 @@ class _ReportLoadingCard extends StatelessWidget {
 }
 
 class _ReportErrorCard extends StatelessWidget {
-  const _ReportErrorCard({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ReportErrorCard({required this.message, required this.onRetry});
 
   final String message;
   final VoidCallback onRetry;
@@ -1351,16 +1357,10 @@ class _ReportErrorCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              message,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text(message, style: Theme.of(context).textTheme.bodySmall),
             Align(
               alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: onRetry,
-                child: const Text('Retry'),
-              ),
+              child: TextButton(onPressed: onRetry, child: const Text('Retry')),
             ),
           ],
         ),

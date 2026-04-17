@@ -8,7 +8,7 @@ import '../../../core/ui/ethiopian_date_picker.dart';
 import '../../../data/wallet/models.dart';
 import '../../../data/wallet/recorded_daily_days_month.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../data/repository_providers.dart';
+import '../../data/server_state_refresh.dart';
 import '../../wallet/wallet_providers.dart';
 
 class CustomerReportsTab extends ConsumerStatefulWidget {
@@ -20,51 +20,23 @@ class CustomerReportsTab extends ConsumerStatefulWidget {
 
 class _CustomerReportsTabState extends ConsumerState<CustomerReportsTab> {
   CalendarModeService? _calendarService;
-  String? _customerId;
-  List<CustomerWallet> _wallets = const <CustomerWallet>[];
   String? _selectedWalletId;
-  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _selectedMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
 
   @override
   void initState() {
     super.initState();
     _initCalendarService();
-    _initCustomerData();
   }
 
   Future<void> _initCalendarService() async {
     final service = await CalendarModeService.getInstance();
     if (mounted) {
       setState(() => _calendarService = service);
-    }
-  }
-
-  Future<void> _initCustomerData() async {
-    final uid = ref.read(authUidProvider).valueOrNull;
-    if (uid == null) return;
-
-    try {
-      final profile = await ref.read(appUserProfileProvider(uid).future);
-      final customerId = profile.customerId;
-      if (customerId == null || customerId.isEmpty || !mounted) return;
-
-      final wallets = await ref.read(customerRepoProvider).fetchCustomerWallets(customerId);
-      if (!mounted) return;
-
-      setState(() {
-        _customerId = customerId;
-        _wallets = wallets;
-        _selectedWalletId = wallets
-            .firstWhere((w) => w.isPrimary, orElse: () => wallets.first)
-            .id;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _customerId = null;
-        _wallets = const <CustomerWallet>[];
-        _selectedWalletId = null;
-      });
     }
   }
 
@@ -103,107 +75,187 @@ class _CustomerReportsTabState extends ConsumerState<CustomerReportsTab> {
 
   void _goMonth(int delta) {
     setState(() {
-      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + delta, 1);
+      _selectedMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month + delta,
+        1,
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final uid = ref.watch(authUidProvider).valueOrNull;
+    if (uid == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (_calendarService == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final profileAsync = ref.watch(appUserProfileProvider(uid));
+
     return ValueListenableBuilder<CalendarMode>(
       valueListenable: _calendarService!,
       builder: (context, mode, _) {
-        final customerId = _customerId;
-        final walletId = _selectedWalletId;
-        final monthKey = _monthKey(_selectedMonth);
-        CustomerWallet? selectedWallet;
-        if (walletId != null) {
-          for (final wallet in _wallets) {
-            if (wallet.id == walletId) {
-              selectedWallet = wallet;
-              break;
-            }
-          }
-        }
-        final targetDays = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
-
-        AsyncValue<RecordedDailyDaysMonth>? recordedAsync;
-        if (customerId != null && walletId != null) {
-          recordedAsync = ref.watch(
-            recordedDailyDaysByMonthProvider((
-              customerId: customerId,
-              walletId: walletId,
-              month: monthKey,
-            )),
-          );
-        }
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF9FAFB),
-          body: RefreshIndicator(
-            onRefresh: _initCustomerData,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                _MonthAndWalletHeader(
-                  mode: mode,
-                  monthKey: monthKey,
-                  selectedWalletId: walletId,
-                  wallets: _wallets,
-                  onWalletChanged: (v) => setState(() => _selectedWalletId = v),
-                  onPickMonth: () => _selectMonth(mode),
-                  onPrevMonth: () => _goMonth(-1),
-                  onNextMonth: () => _goMonth(1),
-                ),
-                const SizedBox(height: 12),
-                if (customerId == null || walletId == null || selectedWallet == null)
-                  const _ReportsInfoCard(
-                    icon: Icons.info_outline,
-                    message: 'Unable to load wallet report right now.',
-                  )
-                else if (recordedAsync == null)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  recordedAsync.when(
-                    loading: () => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 36),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (error, _) => _ReportsInfoCard(
-                      icon: Icons.error_outline,
-                      message: 'Could not load report data: $error',
-                    ),
-                    data: (recordedData) {
-                      final savedDays = recordedData.recordedTxDays.length;
-                      final remainingDays = (targetDays - savedDays).clamp(0, targetDays);
-                      final progress = targetDays == 0 ? 0.0 : savedDays / targetDays;
-                      return Column(
-                        children: [
-                          _ProgressCard(
-                            savedDays: savedDays,
-                            remainingDays: remainingDays,
-                            percent: (progress * 100).round(),
-                            progress: progress.clamp(0.0, 1.0),
-                          ),
-                          const SizedBox(height: 12),
-                          _SavedDaysCalendarCard(
-                            mode: mode,
-                            month: _selectedMonth,
-                            recordedTxDays: recordedData.recordedTxDays,
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-              ],
+        return profileAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text('Could not load profile: $error'),
             ),
           ),
+          data: (profile) {
+            final customerId = profile.customerId;
+            final monthKey = _monthKey(_selectedMonth);
+            if (customerId == null || customerId.isEmpty) {
+              return const Scaffold(
+                backgroundColor: Color(0xFFF9FAFB),
+                body: Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  child: _ReportsInfoCard(
+                    icon: Icons.info_outline,
+                    message: 'Unable to load wallet report right now.',
+                  ),
+                ),
+              );
+            }
+
+            final walletsStale = ref.watch(
+              customerWalletsStaleProvider(customerId),
+            );
+            final wallets = walletsStale.data ?? const <CustomerWallet>[];
+            final walletId = _resolveSelectedWalletId(wallets);
+            final selectedWallet = _findWallet(wallets, walletId);
+            final targetDays = DateTime(
+              _selectedMonth.year,
+              _selectedMonth.month + 1,
+              0,
+            ).day;
+
+            AsyncValue<RecordedDailyDaysMonth>? recordedAsync;
+            if (walletId != null) {
+              recordedAsync = ref.watch(
+                recordedDailyDaysByMonthProvider((
+                  customerId: customerId,
+                  walletId: walletId,
+                  month: monthKey,
+                )),
+              );
+            }
+
+            return Scaffold(
+              backgroundColor: const Color(0xFFF9FAFB),
+              body: RefreshIndicator(
+                onRefresh: () => refreshCustomerReportScope(
+                  ref,
+                  customerId: customerId,
+                  walletId: walletId,
+                  month: monthKey,
+                ),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  children: [
+                    _MonthAndWalletHeader(
+                      mode: mode,
+                      monthKey: monthKey,
+                      selectedWalletId: walletId,
+                      wallets: wallets,
+                      onWalletChanged: (v) =>
+                          setState(() => _selectedWalletId = v),
+                      onPickMonth: () => _selectMonth(mode),
+                      onPrevMonth: () => _goMonth(-1),
+                      onNextMonth: () => _goMonth(1),
+                    ),
+                    const SizedBox(height: 12),
+                    if (walletsStale.data == null && walletsStale.isRefreshing)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 36),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (walletsStale.error != null && wallets.isEmpty)
+                      _ReportsInfoCard(
+                        icon: Icons.error_outline,
+                        message:
+                            'Could not load wallets: ${walletsStale.error}',
+                      )
+                    else if (walletId == null || selectedWallet == null)
+                      const _ReportsInfoCard(
+                        icon: Icons.info_outline,
+                        message: 'Unable to load wallet report right now.',
+                      )
+                    else if (recordedAsync == null)
+                      const Center(child: CircularProgressIndicator())
+                    else
+                      recordedAsync.when(
+                        loading: () => const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 36),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (error, _) => _ReportsInfoCard(
+                          icon: Icons.error_outline,
+                          message: 'Could not load report data: $error',
+                        ),
+                        data: (recordedData) {
+                          final savedDays = recordedData.recordedTxDays.length;
+                          final remainingDays = (targetDays - savedDays).clamp(
+                            0,
+                            targetDays,
+                          );
+                          final progress = targetDays == 0
+                              ? 0.0
+                              : savedDays / targetDays;
+                          return Column(
+                            children: [
+                              _ProgressCard(
+                                savedDays: savedDays,
+                                remainingDays: remainingDays,
+                                percent: (progress * 100).round(),
+                                progress: progress.clamp(0.0, 1.0),
+                              ),
+                              const SizedBox(height: 12),
+                              _SavedDaysCalendarCard(
+                                mode: mode,
+                                month: _selectedMonth,
+                                recordedTxDays: recordedData.recordedTxDays,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
+  }
+
+  String? _resolveSelectedWalletId(List<CustomerWallet> wallets) {
+    final selectedWalletId = _selectedWalletId;
+    if (selectedWalletId != null &&
+        wallets.any((wallet) => wallet.id == selectedWalletId)) {
+      return selectedWalletId;
+    }
+    if (wallets.isEmpty) {
+      return null;
+    }
+    return wallets
+        .firstWhere((w) => w.isPrimary, orElse: () => wallets.first)
+        .id;
+  }
+
+  CustomerWallet? _findWallet(List<CustomerWallet> wallets, String? walletId) {
+    for (final wallet in wallets) {
+      if (wallet.id == walletId) {
+        return wallet;
+      }
+    }
+    return null;
   }
 }
 
@@ -240,9 +292,9 @@ class _MonthAndWalletHeader extends StatelessWidget {
           children: [
             Text(
               'Monthly report',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Row(
@@ -256,7 +308,10 @@ class _MonthAndWalletHeader extends StatelessWidget {
                   child: InkWell(
                     onTap: onPickMonth,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(10),
                         color: const Color(0xFFF3F4F6),
@@ -337,16 +392,25 @@ class _ProgressCard extends StatelessWidget {
           children: [
             Text(
               'Progress',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(child: _MetricTile(label: 'Saved days', value: '$savedDays')),
-                Expanded(child: _MetricTile(label: 'Remaining', value: '$remainingDays')),
-                Expanded(child: _MetricTile(label: 'Complete', value: '$percent%')),
+                Expanded(
+                  child: _MetricTile(label: 'Saved days', value: '$savedDays'),
+                ),
+                Expanded(
+                  child: _MetricTile(
+                    label: 'Remaining',
+                    value: '$remainingDays',
+                  ),
+                ),
+                Expanded(
+                  child: _MetricTile(label: 'Complete', value: '$percent%'),
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -386,9 +450,9 @@ class _SavedDaysCalendarCard extends StatelessWidget {
           children: [
             Text(
               'Saved dates',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 10),
             Row(
@@ -431,11 +495,14 @@ class _SavedDaysCalendarCard extends StatelessWidget {
                 final bgColor = isSaved
                     ? const Color(0xFFDCFCE7)
                     : (isFuture ? const Color(0xFFF3F4F6) : Colors.white);
-                final borderColor =
-                    isToday ? const Color(0xFF8B5CF6) : const Color(0xFFE5E7EB);
+                final borderColor = isToday
+                    ? const Color(0xFF8B5CF6)
+                    : const Color(0xFFE5E7EB);
                 final textColor = isSaved
                     ? const Color(0xFF166534)
-                    : (isFuture ? const Color(0xFF9CA3AF) : const Color(0xFF111827));
+                    : (isFuture
+                          ? const Color(0xFF9CA3AF)
+                          : const Color(0xFF111827));
 
                 return Padding(
                   padding: const EdgeInsets.all(2),
@@ -443,7 +510,10 @@ class _SavedDaysCalendarCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: bgColor,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: borderColor, width: isToday ? 1.5 : 1),
+                      border: Border.all(
+                        color: borderColor,
+                        width: isToday ? 1.5 : 1,
+                      ),
                     ),
                     child: Center(
                       child: Text(
@@ -452,7 +522,9 @@ class _SavedDaysCalendarCard extends StatelessWidget {
                             : '${date.day}',
                         style: TextStyle(
                           color: textColor,
-                          fontWeight: isSaved || isToday ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight: isSaved || isToday
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                         ),
                       ),
                     ),
@@ -463,9 +535,9 @@ class _SavedDaysCalendarCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Green days are saved dates.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF6B7280),
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6B7280)),
             ),
           ],
         ),
@@ -486,18 +558,12 @@ class _MetricTile extends StatelessWidget {
       children: [
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 2),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF6B7280),
-          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
         ),
       ],
     );
@@ -529,7 +595,8 @@ class _ReportsInfoCard extends StatelessWidget {
   }
 }
 
-String _monthKey(DateTime date) => '${date.year}-${date.month.toString().padLeft(2, '0')}';
+String _monthKey(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}';
 
 String _isoDay(DateTime date) =>
     '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';

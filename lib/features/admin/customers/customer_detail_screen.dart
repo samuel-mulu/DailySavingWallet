@@ -38,11 +38,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   final _imagePickerService = CustomerImagePickerService();
   final _cloudinaryMediaService = CloudinaryCustomerMediaService();
   CalendarModeService? _calendarService;
-  Future<Customer?>? _customerFuture;
-  Future<List<LedgerTx>>? _ledgerFuture;
-  List<CustomerWallet> _wallets = const [];
   String? _selectedWalletId;
-  bool _walletsLoading = true;
 
   @override
   void initState() {
@@ -53,97 +49,84 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   Future<void> _initCalendarService() async {
     final service = await CalendarModeService.getInstance();
     if (!mounted) return;
-    setState(() {
-      _calendarService = service;
-      _customerFuture = ref
-          .read(customerRepoProvider)
-          .getCustomer(widget.customerId);
-      _ledgerFuture = ref
-          .read(walletRepoProvider)
-          .fetchRecentLedger(widget.customerId, limit: 10);
-    });
-    await _loadWallets();
-  }
-
-  Future<void> _loadWallets() async {
-    if (mounted) {
-      setState(() => _walletsLoading = true);
-    }
-    try {
-      final list = await ref
-          .read(customerRepoProvider)
-          .fetchCustomerWallets(widget.customerId);
-      if (!mounted) return;
-      setState(() {
-        _wallets = list;
-        _walletsLoading = false;
-        if (list.isNotEmpty) {
-          _selectedWalletId = list
-              .firstWhere((w) => w.isPrimary, orElse: () => list.first)
-              .id;
-        }
-      });
-      _reloadLedger();
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _walletsLoading = false;
-        _wallets = const [];
-      });
-    }
-  }
-
-  void _reloadCustomer() {
-    setState(() {
-      _customerFuture = ref
-          .read(customerRepoProvider)
-          .getCustomer(widget.customerId);
-    });
-  }
-
-  void _reloadLedger() {
-    setState(() {
-      _ledgerFuture = ref
-          .read(walletRepoProvider)
-          .fetchRecentLedger(
-            widget.customerId,
-            limit: 10,
-            walletId: _selectedWalletId,
-          );
-    });
+    setState(() => _calendarService = service);
   }
 
   Future<void> _onPullToRefresh() async {
-    setState(() {
-      _customerFuture = ref
-          .read(customerRepoProvider)
-          .getCustomer(widget.customerId);
-      _ledgerFuture = ref
-          .read(walletRepoProvider)
-          .fetchRecentLedger(
-            widget.customerId,
-            limit: 10,
-            walletId: _selectedWalletId,
-          );
-    });
-    await ref
-        .read(
-          walletStaleProvider((
-            customerId: widget.customerId,
-            walletId: _selectedWalletId,
-          )).notifier,
-        )
-        .refresh(force: true);
-    await _loadWallets();
+    await _refreshDetailScope();
+  }
+
+  Future<void> _refreshDetailScope() async {
+    ref.invalidate(customerByIdProvider(widget.customerId));
+    await Future.wait([
+      ref
+          .read(customerWalletsStaleProvider(widget.customerId).notifier)
+          .refresh(force: true),
+      ref
+          .read(
+            walletStaleProvider((
+              customerId: widget.customerId,
+              walletId: _selectedWalletId,
+            )).notifier,
+          )
+          .refresh(force: true),
+      ref
+          .read(
+            recentLedgerStaleProvider((
+              customerId: widget.customerId,
+              walletId: _selectedWalletId,
+            )).notifier,
+          )
+          .refresh(force: true, limit: 10),
+    ]);
+    final walletId = _selectedWalletId;
+    if (walletId != null && walletId.isNotEmpty) {
+      ref.invalidate(
+        walletStatusHistoryProvider((
+          customerId: widget.customerId,
+          walletId: walletId,
+        )),
+      );
+    }
+  }
+
+  String? _resolveSelectedWalletId(List<CustomerWallet> wallets) {
+    final selectedWalletId = _selectedWalletId;
+    if (selectedWalletId != null &&
+        wallets.any((wallet) => wallet.id == selectedWalletId)) {
+      return selectedWalletId;
+    }
+    if (wallets.isEmpty) {
+      return null;
+    }
+    return wallets
+        .firstWhere((wallet) => wallet.isPrimary, orElse: () => wallets.first)
+        .id;
+  }
+
+  CustomerWallet? _findSelectedWallet(
+    List<CustomerWallet> wallets,
+    String? selectedWalletId,
+  ) {
+    for (final wallet in wallets) {
+      if (wallet.id == selectedWalletId) return wallet;
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_calendarService == null ||
-        _customerFuture == null ||
-        _ledgerFuture == null) {
+    if (_calendarService == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final customerAsync = ref.watch(customerByIdProvider(widget.customerId));
+    final walletsStale = ref.watch(
+      customerWalletsStaleProvider(widget.customerId),
+    );
+    final wallets = walletsStale.data ?? const <CustomerWallet>[];
+    final selectedWalletId = _resolveSelectedWalletId(wallets);
+    final selectedWallet = _findSelectedWallet(wallets, selectedWalletId);
 
     return ValueListenableBuilder<CalendarMode>(
       valueListenable: _calendarService!,
@@ -155,25 +138,16 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
               IconButton(
                 tooltip: 'Add wallet',
                 icon: const Icon(Icons.add_card_outlined),
-                onPressed: _walletsLoading
+                onPressed: walletsStale.isRefreshing && wallets.isEmpty
                     ? null
                     : () => _showAddWalletModal(context),
               ),
             ],
           ),
-          body: FutureBuilder<Customer?>(
-            future: _customerFuture,
-            builder: (context, custSnap) {
-              if (custSnap.hasError) {
-                return Center(child: Text('Error: ${custSnap.error}'));
-              }
-
-              if (custSnap.connectionState != ConnectionState.done &&
-                  !custSnap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final customer = custSnap.data;
+          body: customerAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => Center(child: Text('Error: $error')),
+            data: (customer) {
               if (customer == null) {
                 return const Center(child: Text('Customer not found'));
               }
@@ -288,7 +262,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       builder: (context, ref, _) {
                         final key = (
                           customerId: widget.customerId,
-                          walletId: _selectedWalletId,
+                          walletId: selectedWalletId,
                         );
                         final stale = ref.watch(walletStaleProvider(key));
                         final wallet = stale.data;
@@ -316,15 +290,15 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                if (_wallets.length > 1) ...[
+                                if (wallets.length > 1) ...[
                                   DropdownButtonFormField<String>(
                                     initialValue:
-                                        _selectedWalletId != null &&
-                                            _wallets.any(
-                                              (w) => w.id == _selectedWalletId,
+                                        selectedWalletId != null &&
+                                            wallets.any(
+                                              (w) => w.id == selectedWalletId,
                                             )
-                                        ? _selectedWalletId
-                                        : _wallets.first.id,
+                                        ? selectedWalletId
+                                        : wallets.first.id,
                                     decoration: const InputDecoration(
                                       labelText: 'Account',
                                       border: OutlineInputBorder(),
@@ -334,7 +308,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                         vertical: 8,
                                       ),
                                     ),
-                                    items: _wallets
+                                    items: wallets
                                         .map(
                                           (w) => DropdownMenuItem(
                                             value: w.id,
@@ -356,7 +330,14 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                             )).notifier,
                                           )
                                           .refresh(force: true);
-                                      _reloadLedger();
+                                      ref
+                                          .read(
+                                            recentLedgerStaleProvider((
+                                              customerId: widget.customerId,
+                                              walletId: v,
+                                            )).notifier,
+                                          )
+                                          .refresh(force: true, limit: 10);
                                     },
                                   ),
                                   const SizedBox(height: 12),
@@ -419,32 +400,27 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    if (_selectedWalletId != null)
-                      FutureBuilder<
-                        ({
-                          WalletStatusHealth health,
-                          List<WalletStatusEvent> events,
-                        })
-                      >(
-                        future: ref
-                            .read(walletRepoProvider)
-                            .fetchWalletStatusHistory(
+                    if (selectedWalletId != null)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final historyAsync = ref.watch(
+                            walletStatusHistoryProvider((
                               customerId: widget.customerId,
-                              walletId: _selectedWalletId!,
-                            ),
-                        builder: (context, snap) {
-                          if (snap.hasError) {
+                              walletId: selectedWalletId,
+                            )),
+                          );
+                          if (historyAsync.hasError) {
                             return Card(
                               child: Padding(
                                 padding: const EdgeInsets.all(12),
                                 child: Text(
-                                  'Could not load wallet health: ${snap.error}',
+                                  'Could not load wallet health: ${historyAsync.error}',
                                   style: Theme.of(context).textTheme.bodySmall,
                                 ),
                               ),
                             );
                           }
-                          if (!snap.hasData) {
+                          if (!historyAsync.hasValue) {
                             return const Card(
                               child: Padding(
                                 padding: EdgeInsets.all(12),
@@ -452,7 +428,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               ),
                             );
                           }
-                          final data = snap.data!;
+                          final data = historyAsync.requireValue;
                           return Card(
                             child: Padding(
                               padding: const EdgeInsets.all(12),
@@ -541,13 +517,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       children: [
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed:
-                                _selectedWalletId == null || _wallets.isEmpty
+                            onPressed: selectedWallet == null
                                 ? null
                                 : () {
-                                    final w = _wallets.firstWhere(
-                                      (x) => x.id == _selectedWalletId,
-                                    );
+                                    final w = selectedWallet!;
                                     if (!walletAllowsMoneyMovement(w.status)) {
                                       _showMoneyActionBlockedSnack(context, w);
                                       return;
@@ -569,13 +542,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed:
-                                _selectedWalletId == null || _wallets.isEmpty
+                            onPressed: selectedWallet == null
                                 ? null
                                 : () {
-                                    final w = _wallets.firstWhere(
-                                      (x) => x.id == _selectedWalletId,
-                                    );
+                                    final w = selectedWallet!;
                                     if (!walletAllowsMoneyMovement(w.status)) {
                                       _showMoneyActionBlockedSnack(context, w);
                                       return;
@@ -600,12 +570,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _selectedWalletId == null || _wallets.isEmpty
+                        onPressed: selectedWallet == null
                             ? null
                             : () {
-                                final w = _wallets.firstWhere(
-                                  (x) => x.id == _selectedWalletId,
-                                );
+                                final w = selectedWallet!;
                                 if (!walletAllowsMoneyMovement(w.status)) {
                                   _showMoneyActionBlockedSnack(context, w);
                                   return;
@@ -626,19 +594,24 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    FutureBuilder<List<LedgerTx>>(
-                      future: _ledgerFuture,
-                      builder: (context, txSnap) {
-                        if (txSnap.hasError) {
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final stale = ref.watch(
+                          recentLedgerStaleProvider((
+                            customerId: widget.customerId,
+                            walletId: selectedWalletId,
+                          )),
+                        );
+                        if (stale.error != null &&
+                            (stale.data == null || stale.data!.isEmpty)) {
                           return Card(
                             child: Padding(
                               padding: const EdgeInsets.all(16),
-                              child: Text('Error: ${txSnap.error}'),
+                              child: Text('Error: ${stale.error}'),
                             ),
                           );
                         }
-
-                        if (!txSnap.hasData) {
+                        if (stale.data == null && stale.isRefreshing) {
                           return const Card(
                             child: Padding(
                               padding: EdgeInsets.all(16),
@@ -647,7 +620,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                           );
                         }
 
-                        final txs = txSnap.data!;
+                        final txs = stale.data ?? const <LedgerTx>[];
                         if (txs.isEmpty) {
                           return const Card(
                             child: Padding(
@@ -698,7 +671,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
           builder: (sheetContext, setSheetState) {
             Future<void> pickImage(CustomerMediaSlot slot) async {
               try {
-                final selected = await _imagePickerService.pickImageFromGallery(slot);
+                final selected = await _imagePickerService.pickImageFromGallery(
+                  slot,
+                );
                 if (selected == null) return;
                 setSheetState(() {
                   selectedImages[slot] = selected;
@@ -742,7 +717,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
 
                 if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
-                _reloadCustomer();
+                await _refreshDetailScope();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Customer images updated')),
                 );
@@ -882,7 +857,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
 
                 if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
-                _reloadCustomer();
+                await _refreshDetailScope();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Customer updated successfully'),
@@ -1086,7 +1061,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
               if (form == null || !form.validate()) return;
               setSheetState(() => isSaving = true);
               try {
-                await ref.read(customerRepoProvider).resetCustomerPassword(
+                await ref
+                    .read(customerRepoProvider)
+                    .resetCustomerPassword(
                       customerId: customer.customerId,
                       newPassword: passwordCtrl.text,
                     );
@@ -1127,9 +1104,8 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                       children: [
                         Text(
                           'Reset Password',
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -1347,7 +1323,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                       );
                                   if (!sheetContext.mounted) return;
                                   Navigator.of(sheetContext).pop();
-                                  await _loadWallets();
+                                  await _refreshDetailScope();
                                   if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
@@ -1411,9 +1387,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                 )
                 .applyWallet(updated);
           }
-          _reloadLedger();
+          await _refreshDetailScope();
         },
-        onRefreshAfterBatch: _reloadLedger,
+        onRefreshAfterBatch: _refreshDetailScope,
       );
       return;
     }
@@ -1492,28 +1468,22 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                             : noteCtrl.text.trim();
                         final txDateMillis = dateToTxMillis(selectedDate);
 
-                        WalletSnapshot? updated;
-                        if (type == 'DAILY_PAYMENT') {
-                          updated = await ref
-                              .read(walletRepoProvider)
-                              .recordDailySaving(
-                                customerId: customer.customerId,
-                                walletId: wallet.id,
-                                amountCents: cents,
-                                txDateMillis: txDateMillis,
-                                note: note,
-                              );
-                        } else {
-                          updated = await ref
-                              .read(walletRepoProvider)
-                              .recordDeposit(
-                                customerId: customer.customerId,
-                                walletId: wallet.id,
-                                amountCents: cents,
-                                txDateMillis: txDateMillis,
-                                note: note,
-                              );
+                        ref.read(dailyWalletMutationProvider.notifier).clear();
+                        await ref
+                            .read(dailyWalletMutationProvider.notifier)
+                            .submit((
+                              customerId: customer.customerId,
+                              walletId: wallet.id,
+                              amountCents: cents,
+                              txDateMillis: txDateMillis,
+                              note: note,
+                              isDailySaving: type == 'DAILY_PAYMENT',
+                            ));
+                        final mutation = ref.read(dailyWalletMutationProvider);
+                        if (mutation.error != null) {
+                          throw mutation.error!;
                         }
+                        final updated = mutation.data;
 
                         if (!dialogContext.mounted) return;
                         Navigator.of(dialogContext).pop();
@@ -1528,7 +1498,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               )
                               .applyWallet(updated);
                         }
-                        _reloadLedger();
+                        await _refreshDetailScope();
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Payment recorded successfully'),
@@ -1627,7 +1597,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               reason: reason,
                             );
 
-                        _reloadLedger();
+                        await _refreshDetailScope();
                         if (!dialogContext.mounted) return;
                         Navigator.of(dialogContext).pop();
                         ScaffoldMessenger.of(context).showSnackBar(

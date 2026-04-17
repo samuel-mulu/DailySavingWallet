@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/money/money.dart';
 import '../../core/ui/date_selector.dart';
-import '../../data/wallet/wallet_repo.dart';
+import '../wallet/wallet_providers.dart';
 
-class RecordDailySavingScreen extends StatefulWidget {
+class RecordDailySavingScreen extends ConsumerStatefulWidget {
   const RecordDailySavingScreen({super.key});
 
   @override
-  State<RecordDailySavingScreen> createState() => _RecordDailySavingScreenState();
+  ConsumerState<RecordDailySavingScreen> createState() =>
+      _RecordDailySavingScreenState();
 }
 
-class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
-  final _repo = WalletRepo();
+class _RecordDailySavingScreenState
+    extends ConsumerState<RecordDailySavingScreen> {
   final _customerIdCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
@@ -37,22 +39,29 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
 
     try {
       final customerId = _customerIdCtrl.text.trim();
-      if (customerId.isEmpty) throw const FormatException('Customer ID is required');
+      if (customerId.isEmpty)
+        throw const FormatException('Customer ID is required');
 
       final cents = MoneyEtb.parseEtbToCents(_amountCtrl.text);
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
       final txDateMillis = dateToTxMillis(_selectedDate);
 
-      await _repo.recordDailySaving(
+      ref.read(recordDailySavingMutationProvider.notifier).clear();
+      await ref.read(recordDailySavingMutationProvider.notifier).submit((
         customerId: customerId,
+        walletId: null,
         amountCents: cents,
         txDateMillis: txDateMillis,
         note: note,
-      );
+      ));
+      final mutation = ref.read(recordDailySavingMutationProvider);
+      if (mutation.error != null) {
+        throw mutation.error!;
+      }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Daily saving recorded.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Daily saving recorded.')));
       Navigator.of(context).pop();
     } on FormatException catch (e) {
       setState(() => _error = e.message);
@@ -84,7 +93,9 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _amountCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(labelText: 'Amount (ETB)'),
             ),
             const SizedBox(height: 12),
@@ -94,7 +105,8 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
               maxLines: 2,
             ),
             const SizedBox(height: 12),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+            if (_error != null)
+              Text(_error!, style: const TextStyle(color: Colors.red)),
             const Spacer(),
             SizedBox(
               width: double.infinity,
@@ -115,4 +127,3 @@ class _RecordDailySavingScreenState extends State<RecordDailySavingScreen> {
     );
   }
 }
-

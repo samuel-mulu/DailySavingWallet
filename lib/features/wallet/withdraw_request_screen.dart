@@ -1,29 +1,28 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/data/mutation_state.dart';
 import '../../core/money/money.dart';
 import '../../data/wallet/models.dart';
-import '../../data/wallet/wallet_repo.dart';
+import 'wallet_providers.dart';
 
-class WithdrawRequestScreen extends StatefulWidget {
+class WithdrawRequestScreen extends ConsumerStatefulWidget {
   final String? customerId;
   final String? walletId;
   const WithdrawRequestScreen({super.key, this.customerId, this.walletId});
 
   @override
-  State<WithdrawRequestScreen> createState() => _WithdrawRequestScreenState();
+  ConsumerState<WithdrawRequestScreen> createState() =>
+      _WithdrawRequestScreenState();
 }
 
-class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
-  final _repo = WalletRepo();
+class _WithdrawRequestScreenState extends ConsumerState<WithdrawRequestScreen> {
   final _amountCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
   Timer? _previewDebounce;
-  bool _busy = false;
-  bool _previewBusy = false;
-  String? _error;
-  WithdrawPreview? _preview;
+  String? _localError;
 
   @override
   void initState() {
@@ -41,33 +40,27 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
 
   void _handleAmountChanged() {
     _previewDebounce?.cancel();
+    if (_localError != null) {
+      setState(() => _localError = null);
+    }
 
     final text = _amountCtrl.text.trim();
     if (text.isEmpty) {
-      setState(() {
-        _preview = null;
-        _previewBusy = false;
-      });
+      setState(() {});
       return;
     }
 
     final amountCents = _tryParseAmountCents();
     if (amountCents == null) {
-      setState(() {
-        _preview = null;
-        _previewBusy = false;
-      });
+      setState(() {});
       return;
     }
 
-    setState(() {
-      _preview = WithdrawPreview.calculate(amountCents);
-      _previewBusy = true;
-    });
+    setState(() {});
 
     _previewDebounce = Timer(
       const Duration(milliseconds: 300),
-      () => _syncPreview(amountCents),
+      () => ref.read(withdrawPreviewProvider(amountCents).notifier).refresh(),
     );
   }
 
@@ -81,41 +74,16 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
     }
   }
 
-  Future<void> _syncPreview(int amountCents) async {
-    try {
-      final preview = await _repo.previewWithdraw(amountCents: amountCents);
-      if (!mounted || _tryParseAmountCents() != amountCents) return;
-      setState(() {
-        _preview = preview;
-        _previewBusy = false;
-      });
-    } catch (_) {
-      if (!mounted || _tryParseAmountCents() != amountCents) return;
-      setState(() => _previewBusy = false);
-    }
-  }
-
-  Future<WithdrawPreview> _resolvePreview(int amountCents) async {
-    final preview = _preview;
-    if (preview != null && preview.requestedAmountCents == amountCents) {
-      return preview;
-    }
-
-    try {
-      return await _repo.previewWithdraw(amountCents: amountCents);
-    } catch (_) {
-      return WithdrawPreview.calculate(amountCents);
-    }
-  }
-
   Future<void> _submit() async {
-    setState(() => _error = null);
+    setState(() => _localError = null);
+    ref.read(withdrawSubmitMutationProvider.notifier).clear();
 
     try {
       final cents = MoneyEtb.parseEtbToCents(_amountCtrl.text);
       final reason = _reasonCtrl.text.trim();
       if (reason.isEmpty) throw const FormatException('Reason is required');
-      final preview = await _resolvePreview(cents);
+      final previewState = ref.read(withdrawPreviewProvider(cents));
+      final preview = previewState.data ?? WithdrawPreview.calculate(cents);
       if (!mounted) return;
 
       final ok = await showDialog<bool>(
@@ -152,37 +120,41 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
         ),
       );
       if (ok != true || !mounted) return;
-
-      setState(() => _busy = true);
-      try {
-        if (widget.customerId != null && widget.customerId!.isNotEmpty) {
-          await _repo.requestWithdrawForCustomer(
-            customerId: widget.customerId!,
-            walletId: widget.walletId,
-            amountCents: cents,
-            reason: reason,
-          );
-        } else {
-          await _repo.requestWithdraw(amountCents: cents, reason: reason);
-        }
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Withdraw request submitted.')),
-        );
-        Navigator.of(context).pop();
-      } finally {
-        if (mounted) setState(() => _busy = false);
-      }
+      await ref.read(withdrawSubmitMutationProvider.notifier).submit((
+        customerId: widget.customerId,
+        walletId: widget.walletId,
+        amountCents: cents,
+        reason: reason,
+      ));
     } on FormatException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _localError = e.message);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final preview = _preview;
+    ref.listen<MutationState<String?>>(withdrawSubmitMutationProvider, (
+      previous,
+      next,
+    ) {
+      if (!mounted) return;
+      final prevLoading = previous?.isLoading ?? false;
+      if (prevLoading && !next.isLoading && next.error == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Withdraw request submitted.')),
+        );
+        Navigator.of(context).pop();
+      }
+    });
+    final amountCents = _tryParseAmountCents();
+    final previewState = amountCents == null
+        ? null
+        : ref.watch(withdrawPreviewProvider(amountCents));
+    final preview = previewState?.data;
+    final previewBusy = previewState?.isRefreshing ?? false;
+    final submitState = ref.watch(withdrawSubmitMutationProvider);
+    final submitError = submitState.error;
+    final errorText = _localError ?? submitError?.toString();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Request Withdraw')),
@@ -243,7 +215,7 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
                       value: MoneyEtb.formatCents(preview.netPayoutCents),
                       emphasize: true,
                     ),
-                    if (_previewBusy) ...[
+                    if (previewBusy) ...[
                       const SizedBox(height: 10),
                       const LinearProgressIndicator(minHeight: 2),
                     ],
@@ -272,14 +244,14 @@ class _WithdrawRequestScreenState extends State<WithdrawRequestScreen> {
               maxLines: 2,
             ),
             const SizedBox(height: 12),
-            if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+            if (errorText != null)
+              Text(errorText, style: const TextStyle(color: Colors.red)),
             const Spacer(),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: _busy ? null : _submit,
-                child: _busy
+                onPressed: submitState.isLoading ? null : _submit,
+                child: submitState.isLoading
                     ? const SizedBox(
                         height: 18,
                         width: 18,

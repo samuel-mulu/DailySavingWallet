@@ -12,7 +12,7 @@ import '../../../core/ui/error_state.dart';
 import '../../../core/ui/skeleton_box.dart';
 import '../../../data/wallet/models.dart';
 import '../../auth/providers/auth_providers.dart';
-import '../../data/repository_providers.dart';
+import '../../data/server_state_refresh.dart';
 import '../../wallet/wallet_providers.dart';
 import '../../wallet/wallet_status_utils.dart';
 import '../../wallet/widgets/transaction_tile.dart';
@@ -27,8 +27,6 @@ class CustomerHomeTab extends ConsumerStatefulWidget {
 
 class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
   CalendarModeService? _calendarService;
-  String? _lastCustomerId;
-  List<CustomerWallet> _wallets = const [];
   String? _selectedWalletId;
   bool _logoutLoading = false;
 
@@ -56,49 +54,15 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
     if (mounted) setState(() => _calendarService = service);
   }
 
-  Future<void> _onRefresh(String customerId) async {
-    final walletId = _selectedWalletId;
-    await Future.wait([
-      ref
-          .read(
-            walletStaleProvider((
-              customerId: customerId,
-              walletId: walletId,
-            )).notifier,
-          )
-          .refresh(force: true),
-      ref
-          .read(
-            recentLedgerStaleProvider((
-              customerId: customerId,
-              walletId: walletId,
-            )).notifier,
-          )
-          .refresh(force: true),
-    ]);
-  }
-
-  Future<void> _ensureWalletsLoaded(String customerId) async {
-    if (_lastCustomerId == customerId && _wallets.isNotEmpty) return;
-    _lastCustomerId = customerId;
-    try {
-      final wallets = await ref
-          .read(customerRepoProvider)
-          .fetchCustomerWallets(customerId);
-      if (!mounted) return;
-      setState(() {
-        _wallets = wallets;
-        _selectedWalletId = wallets
-            .firstWhere((w) => w.isPrimary, orElse: () => wallets.first)
-            .id;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _wallets = const [];
-        _selectedWalletId = null;
-      });
-    }
+  Future<void> _onRefresh(
+    String customerId, {
+    required String? walletId,
+  }) async {
+    await refreshCustomerWalletReadScope(
+      ref,
+      customerId: customerId,
+      walletId: walletId,
+    );
   }
 
   @override
@@ -192,6 +156,12 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
               );
             }
 
+            final walletsStale = ref.watch(
+              customerWalletsStaleProvider(customerId),
+            );
+            final wallets = walletsStale.data ?? const <CustomerWallet>[];
+            final selectedWalletId = _resolveSelectedWalletId(wallets);
+
             return Column(
               children: [
                 Consumer(
@@ -211,28 +181,26 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                 Expanded(
                   child: RefreshIndicator(
                     color: const Color(0xFF8B5CF6),
-                    onRefresh: () => _onRefresh(customerId),
+                    onRefresh: () =>
+                        _onRefresh(customerId, walletId: selectedWalletId),
                     child: ListView(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       children: [
                         const SizedBox(height: 16),
-                        Builder(
-                          builder: (context) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _ensureWalletsLoaded(customerId);
-                            });
-                            return BalanceCard(
-                              customerId: customerId,
-                              walletId: _selectedWalletId,
-                              wallets: _wallets,
-                              onWalletChanged: (walletId) async {
-                                setState(() => _selectedWalletId = walletId);
-                                await _onRefresh(customerId);
-                              },
-                            );
+                        BalanceCard(
+                          customerId: customerId,
+                          walletId: selectedWalletId,
+                          wallets: wallets,
+                          onWalletChanged: (walletId) async {
+                            setState(() => _selectedWalletId = walletId);
+                            await _onRefresh(customerId, walletId: walletId);
                           },
                         ),
-                        if (accountBlocked || _isSelectedWalletBlocked()) ...[
+                        if (accountBlocked ||
+                            _isSelectedWalletBlocked(
+                              wallets,
+                              selectedWalletId,
+                            )) ...[
                           const SizedBox(height: 12),
                           _StatusBlockBanner(
                             message: accountBlocked
@@ -260,7 +228,10 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                                 color: const Color(0xFF8B5CF6),
                                 onTap:
                                     (accountBlocked ||
-                                        _isSelectedWalletBlocked())
+                                        _isSelectedWalletBlocked(
+                                          wallets,
+                                          selectedWalletId,
+                                        ))
                                     ? () {}
                                     : () async {
                                         await Navigator.of(context).push(
@@ -268,12 +239,15 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                                             builder: (_) =>
                                                 WithdrawRequestScreen(
                                                   customerId: customerId,
-                                                  walletId: _selectedWalletId,
+                                                  walletId: selectedWalletId,
                                                 ),
                                           ),
                                         );
                                         if (!context.mounted) return;
-                                        await _onRefresh(customerId);
+                                        await _onRefresh(
+                                          customerId,
+                                          walletId: selectedWalletId,
+                                        );
                                       },
                               ),
                             ),
@@ -311,7 +285,7 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
                         const SizedBox(height: 12),
                         _RecentLedgerSection(
                           customerId: customerId,
-                          walletId: _selectedWalletId,
+                          walletId: selectedWalletId,
                           calendarMode: mode,
                         ),
                       ],
@@ -326,15 +300,30 @@ class _CustomerHomeTabState extends ConsumerState<CustomerHomeTab> {
     );
   }
 
-  bool _isSelectedWalletBlocked() {
-    CustomerWallet? selected;
-    for (final w in _wallets) {
-      if (w.id == _selectedWalletId) {
-        selected = w;
-        break;
+  String? _resolveSelectedWalletId(List<CustomerWallet> wallets) {
+    final selectedWalletId = _selectedWalletId;
+    if (selectedWalletId != null &&
+        wallets.any((wallet) => wallet.id == selectedWalletId)) {
+      return selectedWalletId;
+    }
+    if (wallets.isEmpty) {
+      return null;
+    }
+    return wallets
+        .firstWhere((w) => w.isPrimary, orElse: () => wallets.first)
+        .id;
+  }
+
+  bool _isSelectedWalletBlocked(
+    List<CustomerWallet> wallets,
+    String? selectedWalletId,
+  ) {
+    for (final w in wallets) {
+      if (w.id == selectedWalletId) {
+        return !walletAllowsMoneyMovement(w.status);
       }
     }
-    return selected != null && !walletAllowsMoneyMovement(selected.status);
+    return false;
   }
 }
 
@@ -681,8 +670,9 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                                     tooltip: _hideBalance
                                         ? 'Show balance'
                                         : 'Hide balance',
-                                    onPressed: () =>
-                                        setState(() => _hideBalance = !_hideBalance),
+                                    onPressed: () => setState(
+                                      () => _hideBalance = !_hideBalance,
+                                    ),
                                     icon: Icon(
                                       _hideBalance
                                           ? Icons.visibility_off_rounded

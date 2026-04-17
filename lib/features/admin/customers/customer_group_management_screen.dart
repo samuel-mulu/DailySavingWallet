@@ -1,101 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/ui/group_colors.dart';
 import '../../../data/api/api_client.dart';
 import '../../../data/customers/customer_group_model.dart';
 import '../../../data/customers/customer_model.dart';
-import '../../../data/customers/customer_repo.dart';
 import 'customer_detail_screen.dart';
+import 'customer_group_management_providers.dart';
 import 'widgets/customer_profile_avatar.dart';
 
-class CustomerGroupManagementScreen extends StatefulWidget {
+class CustomerGroupManagementScreen extends ConsumerStatefulWidget {
   const CustomerGroupManagementScreen({super.key});
 
   @override
-  State<CustomerGroupManagementScreen> createState() =>
+  ConsumerState<CustomerGroupManagementScreen> createState() =>
       _CustomerGroupManagementScreenState();
 }
 
 class _CustomerGroupManagementScreenState
-    extends State<CustomerGroupManagementScreen> {
+    extends ConsumerState<CustomerGroupManagementScreen> {
   static const String _unassignedGroupKey = '__unassigned__';
-  final CustomerRepo _repo = CustomerRepo();
-
-  bool _loading = true;
-  bool _working = false;
-  String? _error;
-  List<Customer> _customers = const [];
-  List<CustomerGroupSummary> _groups = const [];
-  int _unassignedCustomerCount = 0;
   Set<String> _expandedSectionKeys = <String>{};
 
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData({bool showLoader = true}) async {
-    if (showLoader) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    } else {
-      setState(() => _error = null);
-    }
-
-    try {
-      final results = await Future.wait<Object>([
-        _repo.fetchAllActiveCustomers(),
-        _repo.fetchCustomerGroups(),
-      ]);
-      final customers = (results[0] as List<Customer>).toList()
-        ..sort(
-          (a, b) =>
-              a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
-        );
-      final groupResult = results[1] as CustomerGroupListResult;
-
-      if (!mounted) return;
-      final validSectionKeys = <String>{
-        _unassignedGroupKey,
-        ...groupResult.groups.map((group) => group.id),
-      };
-      setState(() {
-        _customers = customers;
-        _groups = groupResult.groups;
-        _unassignedCustomerCount = customers
-            .where((customer) => customer.group == null)
-            .length;
-        _expandedSectionKeys = _expandedSectionKeys
-            .where(validSectionKeys.contains)
-            .toSet();
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = '$error';
-        _loading = false;
-      });
-    }
-  }
-
-  List<Customer> _customersForGroup(String groupId) {
-    return _customers
+  List<Customer> _customersForGroup(List<Customer> customers, String groupId) {
+    return customers
         .where((customer) => customer.group?.id == groupId)
         .toList(growable: false);
   }
 
-  List<Customer> get _unassignedCustomers {
-    return _customers
+  List<Customer> _unassignedCustomers(List<Customer> customers) {
+    return customers
         .where((customer) => customer.group == null)
         .toList(growable: false);
-  }
-
-  int get _assignedCustomerCount {
-    return _customers.where((customer) => customer.group != null).length;
   }
 
   bool _isSectionExpanded(String sectionKey) {
@@ -110,18 +46,24 @@ class _CustomerGroupManagementScreenState
     });
   }
 
-  Set<String> _blockedGroupColorHexes({String? allowedColorHex}) {
+  Set<String> _blockedGroupColorHexes(
+    List<CustomerGroupSummary> groups, {
+    String? allowedColorHex,
+  }) {
     return unavailablePaletteGroupColorHexes(
-      usedColorHexes: _groups.map((group) => group.colorHex),
+      usedColorHexes: groups.map((group) => group.colorHex),
       allowedColorHexes: allowedColorHex == null
           ? const <String>[]
           : <String>[allowedColorHex],
     );
   }
 
-  String _suggestedGroupColorHex({String? preferredColorHex}) {
+  String _suggestedGroupColorHex(
+    List<CustomerGroupSummary> groups, {
+    String? preferredColorHex,
+  }) {
     return preferredGroupColorHex(
-      usedColorHexes: _groups.map((group) => group.colorHex),
+      usedColorHexes: groups.map((group) => group.colorHex),
       preferredColorHex: preferredColorHex,
       allowedColorHexes: preferredColorHex == null
           ? const <String>[]
@@ -129,50 +71,50 @@ class _CustomerGroupManagementScreenState
     );
   }
 
-  Future<void> _createGroup() async {
+  Future<void> _createGroup(List<CustomerGroupSummary> groups) async {
     final input = await _showGroupNameDialog(
       title: 'Create group',
       actionLabel: 'Create',
-      initialColorHex: _suggestedGroupColorHex(),
-      unavailableColorHexes: _blockedGroupColorHexes(),
+      initialColorHex: _suggestedGroupColorHex(groups),
+      unavailableColorHexes: _blockedGroupColorHexes(groups),
     );
     if (input == null) return;
 
-    await _runAction(() async {
-      final group = await _repo.createCustomerGroup(
-        name: input.name,
-        colorHex: input.colorHex,
-      );
-      await _loadData(showLoader: false);
-      if (!mounted) return;
-      _showSnack('${group.name} created.');
-    });
+    await _runAction((
+      type: 'create',
+      groupId: null,
+      customerId: null,
+      name: input.name,
+      colorHex: input.colorHex,
+    ));
   }
 
-  Future<void> _renameGroup(CustomerGroupSummary group) async {
+  Future<void> _renameGroup(
+    CustomerGroupSummary group,
+    List<CustomerGroupSummary> groups,
+  ) async {
     final input = await _showGroupNameDialog(
       title: 'Rename group',
       actionLabel: 'Save',
       initialValue: group.name,
       initialColorHex: _suggestedGroupColorHex(
+        groups,
         preferredColorHex: group.colorHex,
       ),
       unavailableColorHexes: _blockedGroupColorHexes(
+        groups,
         allowedColorHex: group.colorHex,
       ),
     );
     if (input == null) return;
 
-    await _runAction(() async {
-      final updated = await _repo.updateCustomerGroup(
-        groupId: group.id,
-        name: input.name,
-        colorHex: input.colorHex,
-      );
-      await _loadData(showLoader: false);
-      if (!mounted) return;
-      _showSnack('Renamed to ${updated.name}.');
-    });
+    await _runAction((
+      type: 'rename',
+      groupId: group.id,
+      customerId: null,
+      name: input.name,
+      colorHex: input.colorHex,
+    ));
   }
 
   Future<void> _assignCustomerToGroup(
@@ -181,21 +123,29 @@ class _CustomerGroupManagementScreenState
   ) async {
     final destination = targetGroup?.name ?? 'Not assigned';
 
-    await _runAction(() async {
-      await _repo.assignCustomerGroup(
-        customerId: customer.customerId,
-        groupId: targetGroup?.id,
-      );
-      await _loadData(showLoader: false);
-      if (!mounted) return;
-      _showSnack('${customer.fullName} moved to $destination.');
-    });
+    await _runAction((
+      type: 'assign',
+      groupId: targetGroup?.id,
+      customerId: customer.customerId,
+      name: null,
+      colorHex: null,
+    ), successMessage: '${customer.fullName} moved to $destination.');
   }
 
-  Future<void> _runAction(Future<void> Function() action) async {
-    setState(() => _working = true);
+  Future<void> _runAction(
+    CustomerGroupMutationCommand command, {
+    String? successMessage,
+  }) async {
+    ref.read(customerGroupMutationProvider.notifier).clear();
     try {
-      await action();
+      await ref.read(customerGroupMutationProvider.notifier).submit(command);
+      final mutation = ref.read(customerGroupMutationProvider);
+      if (mutation.error != null) {
+        throw mutation.error!;
+      }
+      await ref.read(customerGroupManagementProvider.notifier).refresh();
+      if (!mounted) return;
+      _showSnack(successMessage ?? (mutation.data ?? 'Done.'));
     } on BackendApiException catch (error) {
       if (!mounted) return;
       _showSnack(error.message, isError: true);
@@ -203,9 +153,7 @@ class _CustomerGroupManagementScreenState
       if (!mounted) return;
       _showSnack('$error', isError: true);
     } finally {
-      if (mounted) {
-        setState(() => _working = false);
-      }
+      ref.read(customerGroupMutationProvider.notifier).clear();
     }
   }
 
@@ -231,8 +179,9 @@ class _CustomerGroupManagementScreenState
 
   Future<void> _showAssignCustomerSheet(
     CustomerGroupSummary targetGroup,
+    List<Customer> customers,
   ) async {
-    final eligibleCustomers = _customers
+    final eligibleCustomers = customers
         .where((customer) => customer.group?.id != targetGroup.id)
         .toList(growable: false);
 
@@ -344,6 +293,9 @@ class _CustomerGroupManagementScreenState
   }
 
   Future<void> _showTransferCustomerSheet(Customer customer) async {
+    final groups =
+        ref.read(customerGroupManagementProvider).data?.groups ??
+        const <CustomerGroupSummary>[];
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -366,7 +318,7 @@ class _CustomerGroupManagementScreenState
                 style: Theme.of(sheetContext).textTheme.bodyMedium,
               ),
               const SizedBox(height: 18),
-              for (final group in _groups)
+              for (final group in groups)
                 ListTile(
                   leading: Icon(
                     customer.group?.id == group.id
@@ -427,6 +379,16 @@ class _CustomerGroupManagementScreenState
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final listState = ref.watch(customerGroupManagementProvider);
+    final mutationState = ref.watch(customerGroupMutationProvider);
+    final data = listState.data;
+    final customers = data?.customers ?? const <Customer>[];
+    final groups = data?.groups ?? const <CustomerGroupSummary>[];
+    final unassignedCustomerCount = data?.unassignedCustomerCount ?? 0;
+    final assignedCustomerCount = data?.assignedCustomerCount ?? 0;
+    final working = mutationState.isLoading;
+    final loading = listState.isRefreshing && data == null;
+    final error = listState.error;
 
     return Scaffold(
       appBar: AppBar(
@@ -434,18 +396,18 @@ class _CustomerGroupManagementScreenState
         actions: [
           IconButton(
             tooltip: 'Create group',
-            onPressed: _working ? null : _createGroup,
+            onPressed: working ? null : () => _createGroup(groups),
             icon: const Icon(Icons.group_add_outlined),
           ),
         ],
       ),
       body: Column(
         children: [
-          if (_working) const LinearProgressIndicator(minHeight: 2),
+          if (working) const LinearProgressIndicator(minHeight: 2),
           Expanded(
-            child: _loading
+            child: loading
                 ? const Center(child: CircularProgressIndicator())
-                : _error != null && _customers.isEmpty && _groups.isEmpty
+                : error != null && customers.isEmpty && groups.isEmpty
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
@@ -454,10 +416,17 @@ class _CustomerGroupManagementScreenState
                         children: [
                           const Icon(Icons.error_outline, size: 44),
                           const SizedBox(height: 12),
-                          Text(_error!, textAlign: TextAlign.center),
+                          Text('$error', textAlign: TextAlign.center),
                           const SizedBox(height: 16),
                           FilledButton.icon(
-                            onPressed: _working ? null : _loadData,
+                            onPressed: working
+                                ? null
+                                : () => ref
+                                      .read(
+                                        customerGroupManagementProvider
+                                            .notifier,
+                                      )
+                                      .refresh(),
                             icon: const Icon(Icons.refresh),
                             label: const Text('Try again'),
                           ),
@@ -466,7 +435,9 @@ class _CustomerGroupManagementScreenState
                     ),
                   )
                 : RefreshIndicator(
-                    onRefresh: () => _loadData(showLoader: false),
+                    onRefresh: () => ref
+                        .read(customerGroupManagementProvider.notifier)
+                        .refresh(),
                     child: ListView(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                       children: [
@@ -515,24 +486,26 @@ class _CustomerGroupManagementScreenState
                                 children: [
                                   _SummaryChip(
                                     label: 'Groups',
-                                    value: _groups.length.toString(),
+                                    value: groups.length.toString(),
                                     color: const Color(0xFF8B5CF6),
                                   ),
                                   _SummaryChip(
                                     label: 'Assigned',
-                                    value: _assignedCustomerCount.toString(),
+                                    value: assignedCustomerCount.toString(),
                                     color: const Color(0xFF10B981),
                                   ),
                                   _SummaryChip(
                                     label: 'Not assigned',
-                                    value: _unassignedCustomerCount.toString(),
+                                    value: unassignedCustomerCount.toString(),
                                     color: unassignedGroupColor,
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 16),
                               FilledButton.icon(
-                                onPressed: _working ? null : _createGroup,
+                                onPressed: working
+                                    ? null
+                                    : () => _createGroup(groups),
                                 icon: const Icon(Icons.add),
                                 label: const Text('Create group'),
                               ),
@@ -540,7 +513,7 @@ class _CustomerGroupManagementScreenState
                           ),
                         ),
                         const SizedBox(height: 16),
-                        if (_groups.isEmpty)
+                        if (groups.isEmpty)
                           Container(
                             padding: const EdgeInsets.all(18),
                             decoration: BoxDecoration(
@@ -554,16 +527,17 @@ class _CustomerGroupManagementScreenState
                               'No groups yet. Create your first group to start organizing customers.',
                             ),
                           ),
-                        for (final group in _groups) ...[
+                        for (final group in groups) ...[
                           _GroupCard(
                             group: group,
-                            customers: _customersForGroup(group.id),
-                            busy: _working,
+                            customers: _customersForGroup(customers, group.id),
+                            busy: working,
                             isExpanded: _isSectionExpanded(group.id),
                             onToggleExpanded: () =>
                                 _toggleSectionExpanded(group.id),
-                            onAssign: () => _showAssignCustomerSheet(group),
-                            onRename: () => _renameGroup(group),
+                            onAssign: () =>
+                                _showAssignCustomerSheet(group, customers),
+                            onRename: () => _renameGroup(group, groups),
                             onTransferCustomer: (customer) =>
                                 _showTransferCustomerSheet(customer),
                             onUnassignCustomer: (customer) =>
@@ -575,10 +549,10 @@ class _CustomerGroupManagementScreenState
                           titleOverride: 'Not assigned',
                           descriptionOverride:
                               'Customers without any group. Move them into a group from here.',
-                          countOverride: _unassignedCustomerCount,
+                          countOverride: unassignedCustomerCount,
                           iconOverride: Icons.person_off_outlined,
-                          customers: _unassignedCustomers,
-                          busy: _working,
+                          customers: _unassignedCustomers(customers),
+                          busy: working,
                           isExpanded: _isSectionExpanded(_unassignedGroupKey),
                           onToggleExpanded: () =>
                               _toggleSectionExpanded(_unassignedGroupKey),
