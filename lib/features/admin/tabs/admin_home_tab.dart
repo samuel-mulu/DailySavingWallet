@@ -7,6 +7,7 @@ import '../../../core/ui/app_header.dart';
 import '../../../data/api/wallet_api.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/customers/customer_repo.dart';
+import '../../../data/wallet/models.dart';
 import '../../../data/wallet/wallet_repo.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../customers/admin_customer_ids_notifier.dart';
@@ -498,26 +499,85 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
 
   Future<List<Customer>> _loadCustomersWithPositiveSaving() async {
     final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final withSaving = customers
-        .where((customer) => customer.balanceCents > 0)
-        .toList(growable: false);
+    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
+    final withSaving = customers.where((customer) {
+      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
+      if (wallets.isEmpty) {
+        return customer.balanceCents > 0;
+      }
+      return wallets.any((wallet) => wallet.balanceCents > 0);
+    }).toList(growable: false);
     return _sortCustomers(withSaving);
   }
 
   Future<List<Customer>> _loadCustomersWithCredit() async {
     final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final withCredit = customers
-        .where((customer) => customer.balanceCents < 0)
-        .toList(growable: false);
+    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
+    final withCredit = customers.where((customer) {
+      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
+      if (wallets.isEmpty) {
+        return customer.balanceCents < 0;
+      }
+      return wallets.any((wallet) => wallet.balanceCents < 0);
+    }).toList(growable: false);
     return _sortCustomers(withCredit);
   }
 
   Future<List<Customer>> _loadCustomersWithFlatBalance() async {
     final customers = await _customerRepo!.fetchAllActiveCustomers();
-    final withFlat = customers
-        .where((customer) => customer.balanceCents == 0)
-        .toList(growable: false);
+    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
+    final withFlat = customers.where((customer) {
+      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
+      if (wallets.isEmpty) {
+        return customer.balanceCents == 0;
+      }
+      return wallets.any((wallet) => wallet.balanceCents == 0);
+    }).toList(growable: false);
     return _sortCustomers(withFlat);
+  }
+
+  Future<Map<String, List<CustomerWallet>>> _loadWalletBalancesByCustomerIds(
+    List<Customer> customers,
+  ) async {
+    if (_walletRepo == null || customers.isEmpty) {
+      return const <String, List<CustomerWallet>>{};
+    }
+    final customerIds = customers.map((customer) => customer.customerId).toList(growable: false);
+    return _walletRepo!.fetchWalletsForCustomers(customerIds);
+  }
+
+  Future<Map<String, int>> _loadSavingByCustomerId(List<Customer> customers) async {
+    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
+    final result = <String, int>{};
+    for (final customer in customers) {
+      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
+      if (wallets.isEmpty) {
+        result[customer.customerId] = customer.balanceCents > 0 ? customer.balanceCents : 0;
+        continue;
+      }
+      final sum = wallets
+          .where((wallet) => wallet.balanceCents > 0)
+          .fold<int>(0, (acc, wallet) => acc + wallet.balanceCents);
+      result[customer.customerId] = sum;
+    }
+    return result;
+  }
+
+  Future<Map<String, int>> _loadCreditByCustomerId(List<Customer> customers) async {
+    final walletBalances = await _loadWalletBalancesByCustomerIds(customers);
+    final result = <String, int>{};
+    for (final customer in customers) {
+      final wallets = walletBalances[customer.customerId] ?? const <CustomerWallet>[];
+      if (wallets.isEmpty) {
+        result[customer.customerId] = customer.balanceCents < 0 ? customer.balanceCents.abs() : 0;
+        continue;
+      }
+      final sum = wallets
+          .where((wallet) => wallet.balanceCents < 0)
+          .fold<int>(0, (acc, wallet) => acc + wallet.balanceCents.abs());
+      result[customer.customerId] = sum;
+    }
+    return result;
   }
 
   List<Customer> _sortCustomers(List<Customer> customers) {
@@ -547,6 +607,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
       future: _customersWithSavingFuture,
       emptyMessage: 'No customers with positive saving right now.',
       valueFor: (customer) => customer.balanceCents,
+      walletValueForCustomers: _loadSavingByCustomerId,
       valueColor: const Color(0xFF10B981),
       headerTotalCents: headerTotalCents,
       walletMetricCount: walletMetricCount,
@@ -564,6 +625,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
       future: _customersWithCreditFuture,
       emptyMessage: 'No customers with credit right now.',
       valueFor: (customer) => customer.balanceCents.abs(),
+      walletValueForCustomers: _loadCreditByCustomerId,
       valueColor: const Color(0xFFEF5350),
       headerTotalCents: headerTotalCents,
       walletMetricCount: walletMetricCount,
@@ -592,6 +654,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
     required Future<List<Customer>> future,
     required String emptyMessage,
     required int Function(Customer customer) valueFor,
+    Future<Map<String, int>> Function(List<Customer> customers)? walletValueForCustomers,
     required Color valueColor,
     int? headerTotalCents,
     int? walletMetricCount,
@@ -641,14 +704,22 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                   child: Center(child: Text(emptyMessage)),
                 );
               }
+              return FutureBuilder<Map<String, int>>(
+                future: walletValueForCustomers?.call(customers) ??
+                    Future.value(const <String, int>{}),
+                builder: (context, walletValuesSnap) {
+                  final walletValues = walletValuesSnap.data ?? const <String, int>{};
+                  final resolvedValueFor = (Customer customer) {
+                    final walletValue = walletValues[customer.customerId];
+                    return walletValue ?? valueFor(customer);
+                  };
+                  final listSumCents = customers.fold<int>(
+                    0,
+                    (sum, customer) => sum + resolvedValueFor(customer),
+                  );
+                  final totalCents = headerTotalCents ?? listSumCents;
 
-              final listSumCents = customers.fold<int>(
-                0,
-                (sum, customer) => sum + valueFor(customer),
-              );
-              final totalCents = headerTotalCents ?? listSumCents;
-
-              return Column(
+                  return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
@@ -673,7 +744,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                             customers.isNotEmpty) ...[
                           const SizedBox(height: 6),
                           Text(
-                            'List sum ${MoneyEtb.formatCents(listSumCents)} (customer-level; may differ when a customer has multiple wallets).',
+                            'List sum ${MoneyEtb.formatCents(listSumCents)} (wallet-based per customer).',
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(
                                   color: Theme.of(context).colorScheme.outline,
@@ -705,7 +776,7 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                             '${customer.companyName} - ${customer.phone}',
                           ),
                           trailing: Text(
-                            MoneyEtb.formatCents(valueFor(customer)),
+                            MoneyEtb.formatCents(resolvedValueFor(customer)),
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: valueColor,
@@ -726,6 +797,8 @@ class _AdminHomeTabState extends ConsumerState<AdminHomeTab> {
                     ),
                   ),
                 ],
+                  );
+                },
               );
             },
           ),

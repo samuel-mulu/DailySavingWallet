@@ -140,16 +140,23 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
           }
 
           final sortedCustomers = _sortedCustomers(listState.items);
-          final debtCount = sortedCustomers
-              .where((c) => c.balanceCents < 0)
-              .length;
-          final positiveSavingCount = sortedCustomers
-              .where((c) => c.balanceCents > 0)
-              .length;
-          final flatCount = sortedCustomers
-              .where((c) => c.balanceCents == 0)
-              .length;
-          final filteredCustomers = _applyBalanceFilter(sortedCustomers);
+          final walletsMap = walletsAsync.valueOrNull;
+          final allWallets = walletsMap == null
+              ? const <CustomerWallet>[]
+              : walletsMap.values.expand((wallets) => wallets).toList(growable: false);
+          final debtCount = walletsMap == null
+              ? sortedCustomers.where((c) => c.balanceCents < 0).length
+              : allWallets.where((w) => w.balanceCents < 0).length;
+          final positiveSavingCount = walletsMap == null
+              ? sortedCustomers.where((c) => c.balanceCents > 0).length
+              : allWallets.where((w) => w.balanceCents > 0).length;
+          final flatCount = walletsMap == null
+              ? sortedCustomers.where((c) => c.balanceCents == 0).length
+              : allWallets.where((w) => w.balanceCents == 0).length;
+          final filteredCustomers = _applyBalanceFilter(
+            sortedCustomers,
+            walletsByCustomer: walletsMap,
+          );
 
           return Column(
             children: [
@@ -452,7 +459,34 @@ class _CustomerListScreenState extends ConsumerState<CustomerListScreen> {
     return customers;
   }
 
-  List<Customer> _applyBalanceFilter(List<Customer> customers) {
+  List<Customer> _applyBalanceFilter(
+    List<Customer> customers, {
+    Map<String, List<CustomerWallet>>? walletsByCustomer,
+  }) {
+    if (walletsByCustomer != null) {
+      bool hasWalletMatch(Customer customer, bool Function(CustomerWallet) test) {
+        final wallets = walletsByCustomer[customer.customerId] ?? const <CustomerWallet>[];
+        return wallets.any(test);
+      }
+
+      switch (_balanceFilter) {
+        case _CustomerBalanceFilter.all:
+          return customers;
+        case _CustomerBalanceFilter.debt:
+          return customers
+              .where((customer) => hasWalletMatch(customer, (wallet) => wallet.balanceCents < 0))
+              .toList();
+        case _CustomerBalanceFilter.positiveSaving:
+          return customers
+              .where((customer) => hasWalletMatch(customer, (wallet) => wallet.balanceCents > 0))
+              .toList();
+        case _CustomerBalanceFilter.flat:
+          return customers
+              .where((customer) => hasWalletMatch(customer, (wallet) => wallet.balanceCents == 0))
+              .toList();
+      }
+    }
+
     switch (_balanceFilter) {
       case _CustomerBalanceFilter.all:
         return customers;

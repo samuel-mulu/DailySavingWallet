@@ -230,25 +230,28 @@ class _AdminShellState extends ConsumerState<AdminShell>
               if (i == 0) {
                 ref
                     .read(recordedDailyWalletIdsProvider(txDay).notifier)
-                    .refresh(force: true);
-                ref.invalidate(dailyWalletCountsProvider(txDay));
+                    .ensureFresh(force: false);
                 ref
                     .read(adminCustomerIdsStaleProvider.notifier)
-                    .refresh(force: true);
+                    .ensureFresh(force: false);
               }
               if (i == 1) {
-                ref.read(customerListNotifierProvider.notifier).refresh();
+                ref
+                    .read(customerListNotifierProvider.notifier)
+                    .loadInitial(forceNetwork: false);
               }
               if (i == 2) {
                 ref
                     .read(adminCustomerIdsStaleProvider.notifier)
-                    .refresh(force: true);
-                ref.read(customerListNotifierProvider.notifier).refresh();
+                    .ensureFresh(force: false);
+                ref
+                    .read(customerListNotifierProvider.notifier)
+                    .loadInitial(forceNetwork: false);
               }
               if (i == 3) {
                 ref
                     .read(pendingWithdrawalsStaleProvider.notifier)
-                    .refresh(force: true);
+                    .ensureFresh(force: false);
               }
             });
           },
