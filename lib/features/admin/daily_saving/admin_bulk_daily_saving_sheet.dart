@@ -91,11 +91,13 @@ class _AdminBulkDailySavingSheetState
   final List<BulkDailyDateResult> _results = <BulkDailyDateResult>[];
   int _totalAddedCents = 0;
   int? _finalBalanceCents;
+  late int _currentBalanceCents;
   CalendarModeService? _calendarModeService;
 
   @override
   void initState() {
     super.initState();
+    _currentBalanceCents = widget.wallet.balanceCents;
     CalendarModeService.getInstance().then((service) {
       if (mounted) {
         setState(() => _calendarModeService = service);
@@ -260,6 +262,9 @@ class _AdminBulkDailySavingSheetState
     widget.onRefreshAfterBatch();
     if (!mounted) return;
     setState(() {
+      if (lastSuccessful != null) {
+        _currentBalanceCents = lastSuccessful.balanceCents;
+      }
       _running = false;
       _currentIso = null;
       _selectedIsoDays
@@ -384,6 +389,9 @@ class _AdminBulkDailySavingSheetState
     final failed = _results
         .where((r) => r.status == BulkDailyDateStatus.failed)
         .length;
+    final selectedTotalCents =
+        widget.wallet.dailyTargetCents * _selectedIsoDays.length;
+    final projectedBalanceCents = _currentBalanceCents + selectedTotalCents;
     final headerLabel = mode == CalendarMode.ethiopian
         ? _ethiopianMonthHeader(_visibleMonth)
         : month;
@@ -406,6 +414,12 @@ class _AdminBulkDailySavingSheetState
               Text('${widget.customerName} • ${widget.wallet.label}'),
               Text(
                 'Amount per date: ${MoneyEtb.formatCents(widget.wallet.dailyTargetCents)}',
+              ),
+              Text(
+                'Current balance: ${MoneyEtb.formatCents(_currentBalanceCents)}',
+              ),
+              Text(
+                'Balance after selected saving: ${MoneyEtb.formatCents(projectedBalanceCents)}',
               ),
               const SizedBox(height: 8),
               Row(

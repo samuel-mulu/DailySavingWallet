@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/data/mutation_state.dart';
 import '../../core/money/money.dart';
+import '../../data/api/api_client.dart';
 import '../../data/wallet/models.dart';
 import 'wallet_providers.dart';
 
@@ -154,7 +155,9 @@ class _WithdrawRequestScreenState extends ConsumerState<WithdrawRequestScreen> {
     final previewBusy = previewState?.isRefreshing ?? false;
     final submitState = ref.watch(withdrawSubmitMutationProvider);
     final submitError = submitState.error;
-    final errorText = _localError ?? submitError?.toString();
+    final errorText =
+        _localError ??
+        (submitError == null ? null : describeBackendError(submitError));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Request Withdraw')),

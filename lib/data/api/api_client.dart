@@ -61,6 +61,16 @@ class BackendAuthUnavailableException implements Exception {
   String toString() => message;
 }
 
+String describeBackendError(Object error) {
+  if (error is BackendApiException) {
+    return '[${error.statusCode} ${error.code}] ${error.message}';
+  }
+  if (error is BackendAuthUnavailableException) {
+    return 'Backend session unavailable. Please sign in again.';
+  }
+  return error.toString();
+}
+
 class BackendSessionStore {
   static const _accessTokenKey = 'backend_access_token';
   static const _refreshTokenKey = 'backend_refresh_token';
@@ -133,9 +143,8 @@ class ApiClient {
     );
     return _sendWithRetry(
       requiresAuth: requiresAuth,
-      send: (headers) => _httpClient
-          .get(uri, headers: headers)
-          .timeout(_requestTimeout),
+      send: (headers) =>
+          _httpClient.get(uri, headers: headers).timeout(_requestTimeout),
     );
   }
 

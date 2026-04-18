@@ -12,7 +12,6 @@ import '../../../core/ui/group_colors.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/customers/customer_model.dart';
 import '../../../data/wallet/models.dart';
-import '../../data/repository_providers.dart';
 import '../../wallet/wallet_status_utils.dart';
 import '../../wallet/wallet_providers.dart';
 import '../daily_saving/admin_bulk_daily_saving_sheet.dart';
@@ -273,7 +272,7 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          MoneyEtb.formatCents(wallets[i].balanceCents),
+                          '${MoneyEtb.formatCents(wallets[i].balanceCents)} target= ${MoneyEtb.formatCents(wallets[i].dailyTargetCents)}',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: colorScheme.onSurfaceVariant),
                         ),
@@ -345,6 +344,20 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
+                                if (singleWallet != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Daily target: ${MoneyEtb.formatCents(singleWallet.dailyTargetCents)}',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                                 if (showGroupLineOnCustomer) ...[
                                   const SizedBox(height: 2),
                                   Container(

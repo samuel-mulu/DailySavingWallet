@@ -7,6 +7,7 @@ import '../../core/data/paged_list_state.dart';
 import '../../core/money/money.dart';
 import '../../core/ui/empty_state.dart';
 import '../../core/ui/filter_count_chip.dart';
+import '../../data/api/api_client.dart';
 import '../../data/customers/customer_model.dart';
 import '../../data/wallet/models.dart';
 import '../data/repository_providers.dart';
@@ -152,13 +153,13 @@ class _WithdrawApprovalsScreenState
       ));
       final actionState = ref.read(withdrawReviewMutationProvider);
       if (actionState.error != null) {
-        _snack(actionState.error.toString());
+        _snack(describeBackendError(actionState.error!));
         return;
       }
       _snack('Approved.');
       onCompleted?.call();
     } catch (e) {
-      _snack(e.toString());
+      _snack(describeBackendError(e));
     }
   }
 
@@ -179,13 +180,13 @@ class _WithdrawApprovalsScreenState
       ));
       final actionState = ref.read(withdrawReviewMutationProvider);
       if (actionState.error != null) {
-        _snack(actionState.error.toString());
+        _snack(describeBackendError(actionState.error!));
         return;
       }
       _snack('Rejected.');
       onCompleted?.call();
     } catch (e) {
-      _snack(e.toString());
+      _snack(describeBackendError(e));
     }
   }
 
