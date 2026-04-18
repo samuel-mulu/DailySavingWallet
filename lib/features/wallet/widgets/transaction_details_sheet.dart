@@ -46,6 +46,8 @@ class TransactionDetailsSheet extends StatelessWidget {
             _row('Saving day', savingDay),
             _row('Recorded', recorded),
             _row('By', tx.createdByUid.isEmpty ? '—' : tx.createdByUid),
+            if (tx.note != null && tx.note!.isNotEmpty)
+              _row('Note', tx.note!),
             if (meta.isNotEmpty) ...[
               if (tx.type == 'WITHDRAW_APPROVE') ...[
                 const SizedBox(height: 8),

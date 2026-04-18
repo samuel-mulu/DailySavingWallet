@@ -40,6 +40,15 @@ class TransactionTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(dateStr, style: Theme.of(context).textTheme.bodySmall),
+          if (tx.note != null && tx.note!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Note: ${tx.note!}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           if (tx.type == 'WITHDRAW_APPROVE' && tx.meta != null) ...[
             const SizedBox(height: 2),
             Text(

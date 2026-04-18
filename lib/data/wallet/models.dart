@@ -236,6 +236,7 @@ class LedgerTx {
   final DateTime? createdAt;
   final String createdByUid;
   final Map<String, dynamic>? meta;
+  final String? note;
 
   const LedgerTx({
     required this.id,
@@ -247,11 +248,20 @@ class LedgerTx {
     required this.createdAt,
     required this.createdByUid,
     required this.meta,
+    this.note,
   });
 
   DateTime? get displayDate => txDate ?? createdAt;
 
   static LedgerTx fromBackendMap(Map<String, dynamic> json) {
+    final rawNote = (json['note'] as String?)?.trim() ?? '';
+    final rawReason = (json['reason'] as String?)?.trim() ?? '';
+    final note = rawNote.isNotEmpty
+        ? rawNote
+        : rawReason.isNotEmpty
+            ? rawReason
+            : null;
+
     return LedgerTx(
       id: (json['id'] as String?) ?? '',
       type: (json['type'] as String?) ?? 'UNKNOWN',
@@ -269,6 +279,7 @@ class LedgerTx {
       meta: json['meta'] is Map
           ? Map<String, dynamic>.from(json['meta'] as Map)
           : null,
+      note: note,
     );
   }
 }
