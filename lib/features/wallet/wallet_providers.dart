@@ -51,6 +51,8 @@ typedef DailyWalletMutationCommand = ({
   String walletId,
   int amountCents,
   int txDateMillis,
+  String paymentMethod,
+  String? bankName,
   String? note,
   bool isDailySaving,
 });
@@ -59,8 +61,38 @@ typedef RecordDailySavingCommand = ({
   String? walletId,
   int amountCents,
   int txDateMillis,
+  String paymentMethod,
+  String? bankName,
   String? note,
 });
+typedef CompanyExpenseCommand = ({
+  int amountCents,
+  int? txDateMillis,
+  String reason,
+  String paymentMethod,
+  String? bankName,
+  String? note,
+});
+
+class DailyActivityReportQuery {
+  final String txDay;
+  final String paymentMethod;
+
+  const DailyActivityReportQuery({
+    required this.txDay,
+    this.paymentMethod = 'ALL',
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DailyActivityReportQuery &&
+          other.txDay == txDay &&
+          other.paymentMethod == paymentMethod;
+
+  @override
+  int get hashCode => Object.hash(txDay, paymentMethod);
+}
 
 class AdminHomeCustomerBuckets {
   final List<Customer> withSaving;
@@ -156,10 +188,13 @@ final adminHomeCustomerBucketsProvider =
     });
 
 final dailySavingsActivityReportProvider = FutureProvider.autoDispose
-    .family<Map<String, dynamic>, String>((ref, txDay) {
+    .family<Map<String, dynamic>, DailyActivityReportQuery>((ref, query) {
       return ref
           .read(walletRepoProvider)
-          .fetchDailySavingsActivityReport(txDay);
+          .fetchDailySavingsActivityReport(
+            query.txDay,
+            paymentMethod: query.paymentMethod,
+          );
     });
 
 final monthlySavingsReportProvider = FutureProvider.autoDispose
@@ -683,6 +718,8 @@ class DailyWalletMutationNotifier
               walletId: command.walletId,
               amountCents: command.amountCents,
               txDateMillis: command.txDateMillis,
+              paymentMethod: command.paymentMethod,
+              bankName: command.bankName,
               note: command.note,
             )
           : await repo.recordDeposit(
@@ -690,6 +727,8 @@ class DailyWalletMutationNotifier
               walletId: command.walletId,
               amountCents: command.amountCents,
               txDateMillis: command.txDateMillis,
+              paymentMethod: command.paymentMethod,
+              bankName: command.bankName,
               note: command.note,
             );
       state = state.success(result);
@@ -725,6 +764,46 @@ class RecordDailySavingMutationNotifier
             walletId: command.walletId,
             amountCents: command.amountCents,
             txDateMillis: command.txDateMillis,
+            paymentMethod: command.paymentMethod,
+            bankName: command.bankName,
+            note: command.note,
+          );
+      state = state.success(result);
+    } catch (e) {
+      state = state.failure(e);
+    }
+  }
+
+  void clear() {
+    state = state.reset();
+  }
+}
+
+final companyExpenseMutationProvider =
+    NotifierProvider.autoDispose<
+      CompanyExpenseMutationNotifier,
+      MutationState<WalletSnapshot?>
+    >(CompanyExpenseMutationNotifier.new);
+
+class CompanyExpenseMutationNotifier
+    extends AutoDisposeNotifier<MutationState<WalletSnapshot?>> {
+  @override
+  MutationState<WalletSnapshot?> build() =>
+      MutationState<WalletSnapshot?>.idle();
+
+  Future<void> submit(CompanyExpenseCommand command) async {
+    state = state.loading();
+    try {
+      final result = await ref
+          .read(walletRepoProvider)
+          .recordCompanyExpense(
+            amountCents: command.amountCents,
+            txDate: command.txDateMillis == null
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(command.txDateMillis!),
+            reason: command.reason,
+            paymentMethod: command.paymentMethod,
+            bankName: command.bankName,
             note: command.note,
           );
       state = state.success(result);
@@ -836,6 +915,7 @@ class LedgerPageNotifier
           CustomerLedgerPageQuery
         > {
   bool _initialScheduled = false;
+  static const int _pageSize = 5;
 
   @override
   PagedListState<LedgerTx> build(CustomerLedgerPageQuery arg) {
@@ -875,6 +955,7 @@ class LedgerPageNotifier
             endDate: arg.endDate,
             types: arg.types,
             walletId: arg.walletId,
+            limit: _pageSize,
           );
       state = PagedListState(
         items: page.items,
@@ -910,6 +991,7 @@ class LedgerPageNotifier
             endDate: arg.endDate,
             types: arg.types,
             walletId: arg.walletId,
+            limit: _pageSize,
           );
       state = PagedListState(
         items: [...cur.items, ...page.items],

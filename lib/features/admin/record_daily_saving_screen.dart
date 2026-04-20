@@ -18,7 +18,9 @@ class _RecordDailySavingScreenState
   final _customerIdCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   final _noteCtrl = TextEditingController();
+  final _bankNameCtrl = TextEditingController();
   DateTime _selectedDate = DateTime.now();
+  String _paymentMethod = 'CASH';
 
   bool _busy = false;
   String? _error;
@@ -28,6 +30,7 @@ class _RecordDailySavingScreenState
     _customerIdCtrl.dispose();
     _amountCtrl.dispose();
     _noteCtrl.dispose();
+    _bankNameCtrl.dispose();
     super.dispose();
   }
 
@@ -39,8 +42,9 @@ class _RecordDailySavingScreenState
 
     try {
       final customerId = _customerIdCtrl.text.trim();
-      if (customerId.isEmpty)
+      if (customerId.isEmpty) {
         throw const FormatException('Customer ID is required');
+      }
 
       final cents = MoneyEtb.parseEtbToCents(_amountCtrl.text);
       final note = _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim();
@@ -52,6 +56,12 @@ class _RecordDailySavingScreenState
         walletId: null,
         amountCents: cents,
         txDateMillis: txDateMillis,
+        paymentMethod: _paymentMethod,
+        bankName: _paymentMethod == 'MOBILE_BANKING'
+            ? (_bankNameCtrl.text.trim().isEmpty
+                  ? null
+                  : _bankNameCtrl.text.trim())
+            : null,
         note: note,
       ));
       final mutation = ref.read(recordDailySavingMutationProvider);
@@ -104,6 +114,35 @@ class _RecordDailySavingScreenState
               decoration: const InputDecoration(labelText: 'Note (optional)'),
               maxLines: 2,
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _paymentMethod,
+              decoration: const InputDecoration(
+                labelText: 'Payment Method',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                DropdownMenuItem(
+                  value: 'MOBILE_BANKING',
+                  child: Text('Mobile Banking'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _paymentMethod = value);
+              },
+            ),
+            if (_paymentMethod == 'MOBILE_BANKING') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _bankNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Bank (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             if (_error != null)
               Text(_error!, style: const TextStyle(color: Colors.red)),

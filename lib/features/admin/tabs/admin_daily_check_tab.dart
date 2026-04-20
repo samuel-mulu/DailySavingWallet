@@ -689,6 +689,8 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
           : '',
     );
     final noteCtrl = TextEditingController();
+    String paymentMethod = 'CASH';
+    final bankNameCtrl = TextEditingController();
     DateTime modalSelectedDate = initialDate;
     bool busy = false;
 
@@ -794,6 +796,38 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                     ),
                     maxLines: 2,
                   ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: paymentMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                      DropdownMenuItem(
+                        value: 'MOBILE_BANKING',
+                        child: Text('Mobile Banking'),
+                      ),
+                    ],
+                    onChanged: busy
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setSheetState(() => paymentMethod = value);
+                          },
+                  ),
+                  if (paymentMethod == 'MOBILE_BANKING') ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: bankNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Bank (optional)',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.account_balance_outlined),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
 
                   // Submit Button
@@ -837,6 +871,12 @@ class _AdminDailyCheckTabState extends ConsumerState<AdminDailyCheckTab> {
                                     walletId: wallet.id,
                                     amountCents: cents,
                                     txDateMillis: txDateMillis,
+                                    paymentMethod: paymentMethod,
+                                    bankName: paymentMethod == 'MOBILE_BANKING'
+                                        ? (bankNameCtrl.text.trim().isEmpty
+                                              ? null
+                                              : bankNameCtrl.text.trim())
+                                        : null,
                                     note: note,
                                     isDailySaving: type == 'DAILY_PAYMENT',
                                   ));

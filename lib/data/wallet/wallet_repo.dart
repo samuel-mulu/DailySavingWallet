@@ -140,8 +140,14 @@ class WalletRepo {
     return _walletApi.fetchDailyPendingSummary(txDay);
   }
 
-  Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) {
-    return _walletApi.fetchDailyWalletCounts(txDay);
+  Future<DailyWalletCounts> fetchDailyWalletCounts(
+    String txDay, {
+    String paymentMethod = 'ALL',
+  }) {
+    return _walletApi.fetchDailyWalletCounts(
+      txDay,
+      paymentMethod: paymentMethod,
+    );
   }
 
   Future<DailyCheckPage> fetchDailyCheckPage({
@@ -186,6 +192,8 @@ class WalletRepo {
     String? walletId,
     required int amountCents,
     required int txDateMillis,
+    String paymentMethod = 'CASH',
+    String? bankName,
     String? note,
     String? idempotencyKey,
     String? logicalActionId,
@@ -199,6 +207,8 @@ class WalletRepo {
       walletId: walletId,
       amountCents: amountCents,
       txDate: txDate,
+      paymentMethod: paymentMethod,
+      bankName: bankName,
       note: note,
       idempotencyKey: key,
     );
@@ -213,6 +223,8 @@ class WalletRepo {
     String? walletId,
     required int amountCents,
     int? txDateMillis,
+    String paymentMethod = 'CASH',
+    String? bankName,
     String? note,
     String? idempotencyKey,
     String? logicalActionId,
@@ -227,6 +239,8 @@ class WalletRepo {
       txDate: txDateMillis != null
           ? DateTime.fromMillisecondsSinceEpoch(txDateMillis)
           : null,
+      paymentMethod: paymentMethod,
+      bankName: bankName,
       note: note,
       idempotencyKey: key,
     );
@@ -247,6 +261,24 @@ class WalletRepo {
       walletId: walletId,
       targetStatus: targetStatus,
       reason: reason,
+    );
+  }
+
+  Future<WalletSnapshot?> recordCompanyExpense({
+    required int amountCents,
+    DateTime? txDate,
+    required String reason,
+    String paymentMethod = 'CASH',
+    String? bankName,
+    String? note,
+  }) {
+    return _walletApi.recordCompanyExpense(
+      amountCents: amountCents,
+      txDate: txDate,
+      reason: reason,
+      paymentMethod: paymentMethod,
+      bankName: bankName,
+      note: note,
     );
   }
 
@@ -347,12 +379,21 @@ class WalletRepo {
     return _walletApi.fetchWalletTotals();
   }
 
-  Future<Map<String, dynamic>> fetchDailySavingsReport(String txDay) {
-    return _walletApi.fetchDailySavingsReport(txDay);
+  Future<Map<String, dynamic>> fetchDailySavingsReport(
+    String txDay, {
+    String paymentMethod = 'ALL',
+  }) {
+    return _walletApi.fetchDailySavingsReport(txDay, paymentMethod: paymentMethod);
   }
 
-  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(String activityDay) {
-    return _walletApi.fetchDailySavingsActivityReport(activityDay);
+  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(
+    String activityDay, {
+    String paymentMethod = 'ALL',
+  }) {
+    return _walletApi.fetchDailySavingsActivityReport(
+      activityDay,
+      paymentMethod: paymentMethod,
+    );
   }
 
   Future<Map<String, dynamic>> fetchMonthlySavingsReport(String month) {

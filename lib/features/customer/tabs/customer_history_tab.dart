@@ -463,6 +463,22 @@ class _CustomerHistoryTabState extends ConsumerState<CustomerHistoryTab> {
                                     child: CircularProgressIndicator(),
                                   ),
                                 ),
+                              if (!ledgerState.loadingMore &&
+                                  ledgerState.nextCursor != null &&
+                                  ledgerState.nextCursor!.isNotEmpty)
+                                Center(
+                                  child: TextButton.icon(
+                                    onPressed: () => ref
+                                        .read(
+                                          ledgerPageNotifierProvider(
+                                            query,
+                                          ).notifier,
+                                        )
+                                        .loadMore(),
+                                    icon: const Icon(Icons.expand_more_rounded),
+                                    label: const Text('Load more'),
+                                  ),
+                                ),
                             ],
                             const SizedBox(height: 40),
                           ],

@@ -39,6 +39,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   final _cloudinaryMediaService = CloudinaryCustomerMediaService();
   CalendarModeService? _calendarService;
   String? _selectedWalletId;
+  int _recentTxLimit = 5;
 
   @override
   void initState() {
@@ -77,7 +78,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
               walletId: _selectedWalletId,
             )).notifier,
           )
-          .refresh(force: true, limit: 10),
+          .refresh(force: true, limit: _recentTxLimit),
     ]);
     final walletId = _selectedWalletId;
     if (walletId != null && walletId.isNotEmpty) {
@@ -322,6 +323,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                     onChanged: (v) {
                                       if (v == null) return;
                                       setState(() => _selectedWalletId = v);
+                                    _recentTxLimit = 5;
                                       ref
                                           .read(
                                             walletStaleProvider((
@@ -337,7 +339,10 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                               walletId: v,
                                             )).notifier,
                                           )
-                                          .refresh(force: true, limit: 10);
+                                          .refresh(
+                                            force: true,
+                                            limit: _recentTxLimit,
+                                          );
                                     },
                                   ),
                                   const SizedBox(height: 12),
@@ -640,6 +645,40 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                   ),
                                 )
                                 .toList(),
+                          ),
+                        );
+                      },
+                    ),
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final stale = ref.watch(
+                          recentLedgerStaleProvider((
+                            customerId: widget.customerId,
+                            walletId: selectedWalletId,
+                          )),
+                        );
+                        final txs = stale.data ?? const <LedgerTx>[];
+                        if (txs.length < _recentTxLimit || stale.isRefreshing) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Center(
+                            child: TextButton.icon(
+                              onPressed: () async {
+                                setState(() => _recentTxLimit += 5);
+                                await ref
+                                    .read(
+                                      recentLedgerStaleProvider((
+                                        customerId: widget.customerId,
+                                        walletId: selectedWalletId,
+                                      )).notifier,
+                                    )
+                                    .refresh(force: true, limit: _recentTxLimit);
+                              },
+                              icon: const Icon(Icons.expand_more_rounded),
+                              label: const Text('Load more transactions'),
+                            ),
                           ),
                         );
                       },
@@ -1402,6 +1441,8 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
           : '',
     );
     final noteCtrl = TextEditingController();
+    final bankCtrl = TextEditingController();
+    var paymentMethod = 'CASH';
     DateTime selectedDate = DateTime.now();
     var busy = false;
 
@@ -1447,6 +1488,37 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                   ),
                   maxLines: 2,
                 ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: paymentMethod,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment Method',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                    DropdownMenuItem(
+                      value: 'MOBILE_BANKING',
+                      child: Text('Mobile Banking'),
+                    ),
+                  ],
+                  onChanged: busy
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setDialogState(() => paymentMethod = value);
+                        },
+                ),
+                if (paymentMethod == 'MOBILE_BANKING') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: bankCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Bank (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1476,6 +1548,12 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               walletId: wallet.id,
                               amountCents: cents,
                               txDateMillis: txDateMillis,
+                              paymentMethod: paymentMethod,
+                              bankName: paymentMethod == 'MOBILE_BANKING'
+                                  ? (bankCtrl.text.trim().isEmpty
+                                        ? null
+                                        : bankCtrl.text.trim())
+                                  : null,
                               note: note,
                               isDailySaving: type == 'DAILY_PAYMENT',
                             ));

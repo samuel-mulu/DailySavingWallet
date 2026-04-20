@@ -245,24 +245,36 @@ class WalletApi {
     );
   }
 
-  Future<Map<String, dynamic>> fetchDailySavingsReport(String txDay) {
+  Future<Map<String, dynamic>> fetchDailySavingsReport(
+    String txDay, {
+    String paymentMethod = 'ALL',
+  }) {
     return _client.getJson(
       '/wallet/stats/reports/daily',
-      queryParameters: {'txDay': txDay},
+      queryParameters: {'txDay': txDay, 'paymentMethod': paymentMethod},
     );
   }
 
-  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(String activityDay) {
+  Future<Map<String, dynamic>> fetchDailySavingsActivityReport(
+    String activityDay, {
+    String paymentMethod = 'ALL',
+  }) {
     return _client.getJson(
       '/wallet/stats/reports/daily-activity',
-      queryParameters: {'activityDay': activityDay},
+      queryParameters: {
+        'activityDay': activityDay,
+        'paymentMethod': paymentMethod,
+      },
     );
   }
 
-  Future<DailyWalletCounts> fetchDailyWalletCounts(String txDay) async {
+  Future<DailyWalletCounts> fetchDailyWalletCounts(
+    String txDay, {
+    String paymentMethod = 'ALL',
+  }) async {
     final data = await _client.getJson(
       '/wallet/stats/reports/daily',
-      queryParameters: {'txDay': txDay},
+      queryParameters: {'txDay': txDay, 'paymentMethod': paymentMethod},
     );
     return DailyWalletCounts(
       activeWalletCount: _toInt(data['activeWallets']),
@@ -416,6 +428,8 @@ class WalletApi {
     String? walletId,
     required int amountCents,
     required DateTime txDate,
+    String paymentMethod = 'CASH',
+    String? bankName,
     String? note,
     required String idempotencyKey,
   }) async {
@@ -427,6 +441,9 @@ class WalletApi {
         if (walletId != null && walletId.isNotEmpty) 'walletId': walletId,
         'amountCents': amountCents,
         'txDate': txDate.toUtc().toIso8601String(),
+        'paymentMethod': paymentMethod,
+        if (bankName != null && bankName.trim().isNotEmpty)
+          'bankName': bankName.trim(),
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       },
     );
@@ -438,6 +455,8 @@ class WalletApi {
     String? walletId,
     required int amountCents,
     DateTime? txDate,
+    String paymentMethod = 'CASH',
+    String? bankName,
     String? note,
     required String idempotencyKey,
   }) async {
@@ -449,6 +468,32 @@ class WalletApi {
         if (walletId != null && walletId.isNotEmpty) 'walletId': walletId,
         'amountCents': amountCents,
         if (txDate != null) 'txDate': txDate.toUtc().toIso8601String(),
+        'paymentMethod': paymentMethod,
+        if (bankName != null && bankName.trim().isNotEmpty)
+          'bankName': bankName.trim(),
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return walletFromMutationPayload(data);
+  }
+
+  Future<WalletSnapshot?> recordCompanyExpense({
+    required int amountCents,
+    DateTime? txDate,
+    required String reason,
+    String paymentMethod = 'CASH',
+    String? bankName,
+    String? note,
+  }) async {
+    final data = await _client.postJson(
+      '/wallet/company-expense',
+      body: {
+        'amountCents': amountCents,
+        if (txDate != null) 'txDate': txDate.toUtc().toIso8601String(),
+        'reason': reason.trim(),
+        'paymentMethod': paymentMethod,
+        if (bankName != null && bankName.trim().isNotEmpty)
+          'bankName': bankName.trim(),
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       },
     );

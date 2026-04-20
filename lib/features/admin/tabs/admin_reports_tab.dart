@@ -25,6 +25,7 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
   bool _dailyPdfBusy = false;
   bool _monthlyPdfBusy = false;
   CalendarModeService? _calendarService;
+  String _dailyPaymentMethod = 'ALL';
 
   @override
   void initState() {
@@ -167,10 +168,15 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
                         children: [
                           _StableReportFuture(
                             key: ValueKey<String>(
-                              'd_${_txDay}_$_dailyReportNonce',
+                              'd_${_txDay}_${_dailyPaymentMethod}_$_dailyReportNonce',
                             ),
                             load: () => ref.read(
-                              dailySavingsActivityReportProvider(_txDay).future,
+                              dailySavingsActivityReportProvider(
+                                DailyActivityReportQuery(
+                                  txDay: _txDay,
+                                  paymentMethod: _dailyPaymentMethod,
+                                ),
+                              ).future,
                             ),
                             builder: (context, snap) {
                               if (snap.hasError) {
@@ -195,7 +201,42 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
                                 title: 'Daily collections',
                                 accentColor: const Color(0xFF10B981),
                                 icon: Icons.calendar_today_outlined,
-                                body: _DailyActivityReportSummary(data: data),
+                                body: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      initialValue: _dailyPaymentMethod,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Payment Filter',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: 'ALL',
+                                          child: Text('All'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'CASH',
+                                          child: Text('Cash'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'MOBILE_BANKING',
+                                          child: Text('Mobile Banking'),
+                                        ),
+                                      ],
+                                      onChanged: (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _dailyPaymentMethod = value;
+                                          _dailyReportNonce++;
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _DailyActivityReportSummary(data: data),
+                                  ],
+                                ),
                                 isExporting: _dailyPdfBusy,
                                 onViewDetail: () => _showDailyActivityDetail(
                                   context,
@@ -881,6 +922,7 @@ class _CompanyWalletReportPage extends ConsumerStatefulWidget {
 class _CompanyWalletReportPageState
     extends ConsumerState<_CompanyWalletReportPage> {
   CalendarModeService? _calendarService;
+  bool _submittingExpense = false;
 
   @override
   void initState() {
@@ -935,6 +977,24 @@ class _CompanyWalletReportPageState
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    FilledButton.icon(
+                      onPressed: _submittingExpense
+                          ? null
+                          : () => _showRecordExpenseSheet(context),
+                      icon: _submittingExpense
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.remove_circle_outline),
+                      label: Text(
+                        _submittingExpense
+                            ? 'Recording expense...'
+                            : 'Record Company Expense',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -1111,6 +1171,154 @@ class _CompanyWalletReportPageState
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value) ?? 0;
     return 0;
+  }
+
+  Future<void> _showRecordExpenseSheet(BuildContext context) async {
+    final amountCtrl = TextEditingController();
+    final reasonCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final bankCtrl = TextEditingController();
+    var paymentMethod = 'CASH';
+    var selectedDate = DateTime.now();
+    var busy = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DateSelector(
+                selectedDate: selectedDate,
+                onDateChanged: (value) =>
+                    setSheetState(() => selectedDate = value),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Amount (ETB)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Expense reason',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: paymentMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'CASH', child: Text('Cash')),
+                  DropdownMenuItem(
+                    value: 'MOBILE_BANKING',
+                    child: Text('Mobile Banking'),
+                  ),
+                ],
+                onChanged: busy
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setSheetState(() => paymentMethod = value);
+                      },
+              ),
+              if (paymentMethod == 'MOBILE_BANKING') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: bankCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bank (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Note (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        try {
+                          final amountCents = MoneyEtb.parseEtbToCents(amountCtrl.text);
+                          final reason = reasonCtrl.text.trim();
+                          if (reason.isEmpty) {
+                            throw const FormatException('Expense reason is required');
+                          }
+                          setSheetState(() => busy = true);
+                          setState(() => _submittingExpense = true);
+                          await ref.read(companyExpenseMutationProvider.notifier).submit((
+                            amountCents: amountCents,
+                            txDateMillis: dateToTxMillis(selectedDate),
+                            reason: reason,
+                            paymentMethod: paymentMethod,
+                            bankName: paymentMethod == 'MOBILE_BANKING'
+                                ? (bankCtrl.text.trim().isEmpty
+                                      ? null
+                                      : bankCtrl.text.trim())
+                                : null,
+                            note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
+                          ));
+                          final mutation = ref.read(companyExpenseMutationProvider);
+                          if (mutation.error != null) throw mutation.error!;
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                          if (!mounted) return;
+                          setState(() {});
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Company expense recorded')),
+                          );
+                        } catch (e) {
+                          if (!sheetContext.mounted) return;
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(content: Text('$e')),
+                          );
+                        } finally {
+                          if (mounted) {
+                            setState(() => _submittingExpense = false);
+                          }
+                          if (sheetContext.mounted) {
+                            setSheetState(() => busy = false);
+                          }
+                        }
+                      },
+                child: busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Submit Expense'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

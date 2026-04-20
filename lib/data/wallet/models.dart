@@ -235,6 +235,9 @@ class LedgerTx {
   final DateTime? txDate;
   final DateTime? createdAt;
   final String createdByUid;
+  final String paymentMethod;
+  final String? bankName;
+  final String? expenseReason;
   final Map<String, dynamic>? meta;
   final String? note;
 
@@ -247,6 +250,9 @@ class LedgerTx {
     required this.txDate,
     required this.createdAt,
     required this.createdByUid,
+    this.paymentMethod = 'CASH',
+    this.bankName,
+    this.expenseReason,
     required this.meta,
     this.note,
   });
@@ -276,6 +282,9 @@ class LedgerTx {
           (json['createdByUserId'] as String?) ??
           (json['createdByUid'] as String?) ??
           '',
+      paymentMethod: (json['paymentMethod'] as String?) ?? 'CASH',
+      bankName: json['bankName'] as String?,
+      expenseReason: json['expenseReason'] as String?,
       meta: json['meta'] is Map
           ? Map<String, dynamic>.from(json['meta'] as Map)
           : null,
