@@ -253,6 +253,20 @@ class CustomerRepo {
     );
   }
 
+  Future<CustomerWallet> updateCustomerWalletLimits({
+    required String customerId,
+    required String walletId,
+    int? dailyTargetCents,
+    int? creditLimitCents,
+  }) {
+    return _customerApi.updateCustomerWalletLimits(
+      customerId: customerId,
+      walletId: walletId,
+      dailyTargetCents: dailyTargetCents,
+      creditLimitCents: creditLimitCents,
+    );
+  }
+
   Future<void> resetCustomerPassword({
     required String customerId,
     required String newPassword,

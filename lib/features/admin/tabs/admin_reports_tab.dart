@@ -884,7 +884,7 @@ class _CompanyWalletEntryCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Company Wallet',
+                        'Company / Mahtot Wallet',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -892,7 +892,7 @@ class _CompanyWalletEntryCard extends StatelessWidget {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'Open the company balance, status, and recent history.',
+                        'Open the company (mahtot) balance, status, and history.',
                         style: TextStyle(
                           color: Color(0xFF6B7280),
                           fontSize: 13,
@@ -923,6 +923,8 @@ class _CompanyWalletReportPageState
     extends ConsumerState<_CompanyWalletReportPage> {
   CalendarModeService? _calendarService;
   bool _submittingExpense = false;
+  static const int _companyHistoryPageSize = 30;
+  int _historyLimit = _companyHistoryPageSize;
 
   @override
   void initState() {
@@ -936,7 +938,7 @@ class _CompanyWalletReportPageState
   Widget build(BuildContext context) {
     if (_calendarService == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Company Wallet')),
+        appBar: AppBar(title: const Text('Company / Mahtot Wallet')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -944,9 +946,9 @@ class _CompanyWalletReportPageState
       valueListenable: _calendarService!,
       builder: (context, calendarMode, _) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Company Wallet')),
+          appBar: AppBar(title: const Text('Company / Mahtot Wallet')),
           body: FutureBuilder<Map<String, dynamic>>(
-            future: ref.read(companyWalletReportProvider(60).future),
+            future: ref.read(companyWalletReportProvider(_historyLimit).future),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting &&
                   !snap.hasData) {
@@ -959,7 +961,8 @@ class _CompanyWalletReportPageState
               final data = snap.data ?? const <String, dynamic>{};
               final wallet = (data['wallet'] as Map?) ?? const {};
               final summary = (data['summary'] as Map?) ?? const {};
-              final history = (data['history'] as List?) ?? const [];
+              final history = _dedupHistory((data['history'] as List?) ?? const []);
+              final canLoadMore = history.length >= _historyLimit;
               final isProvisioned = wallet['isProvisioned'] != false;
               final balanceCents = _toInt(wallet['balanceCents']);
               final feeRevenueCents = _toInt(summary['feeRevenueCents']);
@@ -1017,7 +1020,9 @@ class _CompanyWalletReportPageState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${wallet['displayName'] ?? 'Company Wallet'}',
+                              _normalizeCompanyWalletLabel(
+                                '${wallet['displayName'] ?? 'Company Wallet'}',
+                              ),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
@@ -1156,6 +1161,16 @@ class _CompanyWalletReportPageState
                               .toList(),
                         ),
                       ),
+                    if (canLoadMore)
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: () => setState(
+                            () => _historyLimit += _companyHistoryPageSize,
+                          ),
+                          icon: const Icon(Icons.expand_more_rounded),
+                          label: const Text('Load more history'),
+                        ),
+                      ),
                   ],
                 ),
               );
@@ -1171,6 +1186,30 @@ class _CompanyWalletReportPageState
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value) ?? 0;
     return 0;
+  }
+
+  List<Map<String, dynamic>> _dedupHistory(List<dynamic> source) {
+    final seen = <String>{};
+    final result = <Map<String, dynamic>>[];
+    for (final row in source) {
+      if (row is! Map) continue;
+      final item = Map<String, dynamic>.from(row);
+      final id = '${item['id'] ?? ''}';
+      if (id.isEmpty || seen.contains(id)) continue;
+      seen.add(id);
+      result.add(item);
+    }
+    return result;
+  }
+
+  String _normalizeCompanyWalletLabel(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return 'Company / Mahtot Wallet';
+    final lower = value.toLowerCase();
+    if (lower.contains('company') || lower.contains('mahtot')) {
+      return 'Company / Mahtot Wallet';
+    }
+    return value;
   }
 
   Future<void> _showRecordExpenseSheet(BuildContext context) async {
@@ -1266,9 +1305,23 @@ class _CompanyWalletReportPageState
                         try {
                           final amountCents = MoneyEtb.parseEtbToCents(amountCtrl.text);
                           final reason = reasonCtrl.text.trim();
+                          if (amountCents <= 0) {
+                            throw const FormatException('Amount must be greater than zero');
+                          }
                           if (reason.isEmpty) {
                             throw const FormatException('Expense reason is required');
                           }
+                          if (reason.length < 2) {
+                            throw const FormatException(
+                              'Expense reason must be at least 2 characters',
+                            );
+                          }
+                          final reportBefore = await ref.read(
+                            companyWalletReportProvider(_historyLimit).future,
+                          );
+                          final previousBalance = _toInt(
+                            ((reportBefore['wallet'] as Map?) ?? const {})['balanceCents'],
+                          );
                           setSheetState(() => busy = true);
                           setState(() => _submittingExpense = true);
                           await ref.read(companyExpenseMutationProvider.notifier).submit((
@@ -1285,6 +1338,23 @@ class _CompanyWalletReportPageState
                           ));
                           final mutation = ref.read(companyExpenseMutationProvider);
                           if (mutation.error != null) throw mutation.error!;
+                          final refreshed = await ref.refresh(
+                            companyWalletReportProvider(_historyLimit).future,
+                          );
+                          final refreshedWallet =
+                              (refreshed['wallet'] as Map?) ?? const {};
+                          final refreshedHistory = _dedupHistory(
+                            (refreshed['history'] as List?) ?? const [],
+                          );
+                          final refreshedBalance = _toInt(
+                            refreshedWallet['balanceCents'],
+                          );
+                          if (refreshedHistory.isEmpty ||
+                              refreshedBalance >= previousBalance) {
+                            throw const FormatException(
+                              'Expense saved but report is stale. Pull to refresh and verify.',
+                            );
+                          }
                           if (!sheetContext.mounted) return;
                           Navigator.of(sheetContext).pop();
                           if (!mounted) return;

@@ -46,10 +46,6 @@ class TransactionDetailsSheet extends StatelessWidget {
             _row('Saving day', savingDay),
             _row('Recorded', recorded),
             _row('By', tx.createdByUid.isEmpty ? '—' : tx.createdByUid),
-<<<<<<< HEAD
-            if (tx.note != null && tx.note!.isNotEmpty)
-              _row('Note', tx.note!),
-=======
             _row(
               'Payment',
               tx.paymentMethod == 'MOBILE_BANKING'
@@ -60,7 +56,6 @@ class TransactionDetailsSheet extends StatelessWidget {
               _row('Bank', tx.bankName!.trim()),
             if ((tx.expenseReason ?? '').trim().isNotEmpty)
               _row('Expense reason', tx.expenseReason!.trim()),
->>>>>>> 29c31b9 (updated)
             if (meta.isNotEmpty) ...[
               if (tx.type == 'WITHDRAW_APPROVE') ...[
                 const SizedBox(height: 8),

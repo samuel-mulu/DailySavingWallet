@@ -294,6 +294,23 @@ class CustomerApi {
     return CustomerWallet.fromBackendMap(w);
   }
 
+  Future<CustomerWallet> updateCustomerWalletLimits({
+    required String customerId,
+    required String walletId,
+    int? dailyTargetCents,
+    int? creditLimitCents,
+  }) async {
+    final data = await _client.patchJson(
+      '/customers/$customerId/wallets/$walletId',
+      body: {
+        if (dailyTargetCents != null) 'dailyTargetCents': dailyTargetCents,
+        if (creditLimitCents != null) 'creditLimitCents': creditLimitCents,
+      },
+    );
+    final w = asJsonMap(data['wallet'], fieldName: 'wallet');
+    return CustomerWallet.fromBackendMap(w);
+  }
+
   Future<void> resetCustomerPassword({
     required String customerId,
     required String newPassword,

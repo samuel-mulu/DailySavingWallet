@@ -203,7 +203,12 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                                 ),
                                 IconButton(
                                   onPressed: () =>
-                                      _showEditCustomerModal(context, customer),
+                                      _showEditCustomerModal(
+                                        context,
+                                        customer,
+                                        wallets,
+                                        selectedWalletId,
+                                      ),
                                   tooltip: 'Edit customer',
                                   icon: const Icon(Icons.edit_outlined),
                                 ),
@@ -838,22 +843,42 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
     );
   }
 
-  void _showEditCustomerModal(BuildContext context, Customer customer) {
+  void _showEditCustomerModal(
+    BuildContext context,
+    Customer customer,
+    List<CustomerWallet> wallets,
+    String? selectedWalletId,
+  ) {
+    CustomerWallet? initialWallet;
+    for (final wallet in wallets) {
+      if (wallet.id == selectedWalletId) {
+        initialWallet = wallet;
+        break;
+      }
+    }
+    initialWallet ??=
+        wallets.isNotEmpty
+            ? wallets.firstWhere(
+                (wallet) => wallet.isPrimary,
+                orElse: () => wallets.first,
+              )
+            : null;
     final formKey = GlobalKey<FormState>();
     final fullNameCtrl = TextEditingController(text: customer.fullName);
     final companyNameCtrl = TextEditingController(text: customer.companyName);
     final phoneCtrl = TextEditingController(text: customer.phone);
     final addressCtrl = TextEditingController(text: customer.address);
+    final editWalletId = ValueNotifier<String?>(initialWallet?.id);
     final dailyTargetCtrl = TextEditingController(
       text: MoneyEtb.formatCents(
-        customer.dailyTargetCents,
+        initialWallet?.dailyTargetCents ?? customer.dailyTargetCents,
       ).replaceFirst('ETB ', ''),
     );
     final creditLimitCtrl = TextEditingController(
-      text: customer.creditLimitCents == 0
+      text: (initialWallet?.creditLimitCents ?? customer.creditLimitCents) == 0
           ? ''
           : MoneyEtb.formatCents(
-              customer.creditLimitCents,
+              initialWallet?.creditLimitCents ?? customer.creditLimitCents,
             ).replaceFirst('ETB ', ''),
     );
 
@@ -881,18 +906,25 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                     ? 0
                     : MoneyEtb.parseEtbToCents(creditText);
 
-                await ref
-                    .read(customerRepoProvider)
-                    .updateCustomer(
-                      customerId: customer.customerId,
-                      fullName: fullNameCtrl.text.trim(),
-                      phone: phoneCtrl.text.trim(),
-                      companyName: companyNameCtrl.text.trim(),
-                      address: addressCtrl.text.trim(),
-                      email: customer.email,
-                      dailyTargetCents: dailyTargetCents,
-                      creditLimitCents: creditLimitCents,
-                    );
+                final targetWalletId = editWalletId.value;
+                await ref.read(customerRepoProvider).updateCustomer(
+                  customerId: customer.customerId,
+                  fullName: fullNameCtrl.text.trim(),
+                  phone: phoneCtrl.text.trim(),
+                  companyName: companyNameCtrl.text.trim(),
+                  address: addressCtrl.text.trim(),
+                  email: customer.email,
+                  dailyTargetCents: customer.dailyTargetCents,
+                  creditLimitCents: customer.creditLimitCents,
+                );
+                if (targetWalletId != null && targetWalletId.isNotEmpty) {
+                  await ref.read(customerRepoProvider).updateCustomerWalletLimits(
+                    customerId: customer.customerId,
+                    walletId: targetWalletId,
+                    dailyTargetCents: dailyTargetCents,
+                    creditLimitCents: creditLimitCents,
+                  );
+                }
 
                 if (!sheetContext.mounted) return;
                 Navigator.of(sheetContext).pop();
@@ -972,6 +1004,49 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                               : null,
                         ),
                         const SizedBox(height: 12),
+                        if (wallets.length > 1) ...[
+                          ValueListenableBuilder<String?>(
+                            valueListenable: editWalletId,
+                            builder: (context, selected, _) {
+                              return DropdownButtonFormField<String>(
+                                initialValue: selected,
+                                decoration: const InputDecoration(
+                                  labelText: 'Wallet',
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: wallets
+                                    .map(
+                                      (wallet) => DropdownMenuItem(
+                                        value: wallet.id,
+                                        child: Text(
+                                          wallet.label,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  editWalletId.value = value;
+                                  final wallet = wallets.firstWhere(
+                                    (w) => w.id == value,
+                                    orElse: () => wallets.first,
+                                  );
+                                  dailyTargetCtrl.text = MoneyEtb.formatCents(
+                                    wallet.dailyTargetCents,
+                                  ).replaceFirst('ETB ', '');
+                                  creditLimitCtrl.text =
+                                      wallet.creditLimitCents == 0
+                                      ? ''
+                                      : MoneyEtb.formatCents(
+                                          wallet.creditLimitCents,
+                                        ).replaceFirst('ETB ', '');
+                                },
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         TextFormField(
                           controller: addressCtrl,
                           decoration: const InputDecoration(
