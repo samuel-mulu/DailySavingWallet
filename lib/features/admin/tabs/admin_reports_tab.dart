@@ -418,32 +418,30 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Daily collections',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+              Text(
+                'Daily collections',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: _dailyPdfBusy
+                      ? null
+                      : () => _exportDailyActivityPdf(sheetContext, data),
+                  icon: _dailyPdfBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.picture_as_pdf_outlined),
+                  label: Text(
+                    _dailyPdfBusy ? 'Generating...' : 'Generate PDF',
                   ),
-                  FilledButton.icon(
-                    onPressed: _dailyPdfBusy
-                        ? null
-                        : () => _exportDailyActivityPdf(sheetContext, data),
-                    icon: _dailyPdfBusy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.picture_as_pdf_outlined),
-                    label: Text(
-                      _dailyPdfBusy ? 'Generating...' : 'Generate PDF',
-                    ),
-                  ),
-                ],
+                ),
               ),
               Text(
                 _formatReportIsoDay(
@@ -505,32 +503,30 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
             controller: scrollController,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Monthly overview',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+              Text(
+                'Monthly overview',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: _monthlyPdfBusy
+                      ? null
+                      : () => _exportMonthlyPdf(sheetContext, data),
+                  icon: _monthlyPdfBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.picture_as_pdf_outlined),
+                  label: Text(
+                    _monthlyPdfBusy ? 'Generating...' : 'Generate PDF',
                   ),
-                  FilledButton.icon(
-                    onPressed: _monthlyPdfBusy
-                        ? null
-                        : () => _exportMonthlyPdf(sheetContext, data),
-                    icon: _monthlyPdfBusy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.picture_as_pdf_outlined),
-                    label: Text(
-                      _monthlyPdfBusy ? 'Generating...' : 'Generate PDF',
-                    ),
-                  ),
-                ],
+                ),
               ),
               const SizedBox(height: 8),
               _MonthlyReportSummary(
@@ -575,7 +571,10 @@ class _AdminReportsTabState extends ConsumerState<AdminReportsTab> {
                           ),
                           trailing: Text(
                             MoneyEtb.formatCents(
-                              _toInt(daily[i]['totalSavedCents']),
+                              _toInt(
+                                daily[i]['combinedTotalCents'] ??
+                                    daily[i]['totalSavedCents'],
+                              ),
                             ),
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w700,
@@ -664,8 +663,14 @@ class _DailyActivityReportSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final total = _reportIntFromJson(data['totalCollectedCents']);
+    final total = _reportIntFromJson(
+      data['combinedTotalCents'] ?? data['totalCollectedCents'],
+    );
+    final dailySavingTotal = _reportIntFromJson(data['dailySavingTotalCents']);
+    final depositTotal = _reportIntFromJson(data['depositTotalCents']);
     final paymentCount = _reportIntFromJson(data['paymentCount']);
+    final dailySavingCount = _reportIntFromJson(data['dailySavingCount']);
+    final depositCount = _reportIntFromJson(data['depositCount']);
     final pad = compact ? 12.0 : 0.0;
 
     final stats = <_StatItem>[
@@ -680,6 +685,8 @@ class _DailyActivityReportSummary extends StatelessWidget {
         Icons.account_balance_wallet_outlined,
       ),
       _StatItem('Payments', '$paymentCount', Icons.receipt_long_outlined),
+      _StatItem('Saving', '$dailySavingCount', Icons.savings_outlined),
+      _StatItem('Deposit', '$depositCount', Icons.download_outlined),
     ];
 
     return Column(
@@ -697,11 +704,29 @@ class _DailyActivityReportSummary extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Total collected',
+          'Total collected (Saving + Deposit)',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            Chip(
+              label: Text('Saving: ${MoneyEtb.formatCents(dailySavingTotal)}'),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            Chip(
+              label: Text('Deposit: ${MoneyEtb.formatCents(depositTotal)}'),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         Wrap(
@@ -751,7 +776,11 @@ class _MonthlyReportSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final total = _reportIntFromJson(data['totalSavedCents']);
+    final total = _reportIntFromJson(
+      data['combinedTotalCents'] ?? data['totalSavedCents'],
+    );
+    final dailySavingTotal = _reportIntFromJson(data['dailySavingTotalCents']);
+    final depositTotal = _reportIntFromJson(data['depositTotalCents']);
     final monthKey = '${data['month'] ?? ''}';
     final monthLabel = formatApiMonth(monthKey, calendarMode, locale: 'am');
 
@@ -778,11 +807,29 @@ class _MonthlyReportSummary extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '$dayCount day${dayCount == 1 ? '' : 's'} with activity',
+          '$dayCount day${dayCount == 1 ? '' : 's'} with activity (Saving + Deposit)',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            Chip(
+              label: Text('Saving: ${MoneyEtb.formatCents(dailySavingTotal)}'),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            Chip(
+              label: Text('Deposit: ${MoneyEtb.formatCents(depositTotal)}'),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ],
         ),
         if (!compact) const SizedBox(height: 8),
       ],
@@ -802,6 +849,8 @@ class _ActivityLineTile extends StatelessWidget {
     final name = '${row['customerName'] ?? ''}'.trim();
     final company = '${row['companyName'] ?? ''}'.trim();
     final wallet = '${row['walletLabel'] ?? ''}'.trim();
+    final entryType = '${row['entryType'] ?? 'DAILY_PAYMENT'}';
+    final entryLabel = entryType == 'DEPOSIT' ? 'Deposit' : 'Daily saving';
     final coveredRaw = '${row['coveredTxDay'] ?? ''}'.trim();
     final covered = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(coveredRaw)
         ? formatTxDay(coveredRaw, calendarMode, locale: 'am')
@@ -814,6 +863,7 @@ class _ActivityLineTile extends StatelessWidget {
         ? createdRaw
         : null;
     final sub = <String>[
+      entryLabel,
       if (company.isNotEmpty) company,
       if (wallet.isNotEmpty) wallet,
       if (covered.isNotEmpty) 'Saving day: $covered',

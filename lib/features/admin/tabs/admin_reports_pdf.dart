@@ -57,7 +57,11 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
       if (d != 0) return d;
       return '${a['walletLabel']}'.compareTo('${b['walletLabel']}');
     });
-  final totalCollected = _toInt(data['totalCollectedCents']);
+  final totalCollected = _toInt(
+    data['combinedTotalCents'] ?? data['totalCollectedCents'],
+  );
+  final dailySavingTotal = _toInt(data['dailySavingTotalCents']);
+  final depositTotal = _toInt(data['depositTotalCents']);
 
   final dateStr =
       '${generatedAt.year}-${generatedAt.month.toString().padLeft(2, '0')}-${generatedAt.day.toString().padLeft(2, '0')} '
@@ -90,8 +94,12 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
           style: const pw.TextStyle(fontSize: 10),
         ),
         pw.Text(
-          'Total collected: ${MoneyEtb.formatCents(totalCollected)}',
+          'Total collected (Saving + Deposit): ${MoneyEtb.formatCents(totalCollected)}',
           style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.Text(
+          'Saving: ${MoneyEtb.formatCents(dailySavingTotal)} · Deposit: ${MoneyEtb.formatCents(depositTotal)}',
+          style: const pw.TextStyle(fontSize: 10),
         ),
         pw.SizedBox(height: 16),
         pw.Text(
@@ -109,6 +117,7 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
             context: context,
             headers: const [
               'Customer',
+              'Type',
               'Company',
               'Wallet',
               'Saving day',
@@ -118,9 +127,12 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
                 .map(
                   (r) => [
                     '${r['customerName'] ?? ''}',
+                    r['entryType'] == 'DEPOSIT' ? 'Deposit' : 'Saving',
                     _companyLine('${r['companyName'] ?? ''}'),
                     '${r['walletLabel'] ?? ''}',
-                    '${r['coveredTxDay'] ?? '—'}',
+                    '${r['coveredTxDay'] ?? ''}'.trim().isEmpty
+                        ? '—'
+                        : '${r['coveredTxDay']}',
                     MoneyEtb.formatCents(_toInt(r['amountCents'])),
                   ],
                 )
@@ -130,13 +142,14 @@ Future<Uint8List> buildDailySavingsActivityReportPdf({
                 '',
                 '',
                 '',
+                '',
                 MoneyEtb.formatCents(totalCollected),
               ]),
             headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
             cellStyle: const pw.TextStyle(fontSize: 8),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             cellAlignment: pw.Alignment.centerLeft,
-            cellAlignments: {4: pw.Alignment.centerRight},
+            cellAlignments: {5: pw.Alignment.centerRight},
           ),
       ],
     ),
@@ -154,7 +167,9 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
   final doc = await _documentWithNotoFonts();
   final daily = _mapList(data['daily'])
     ..sort((a, b) => '${a['txDay']}'.compareTo('${b['txDay']}'));
-  final totalSaved = _toInt(data['totalSavedCents']);
+  final totalSaved = _toInt(data['combinedTotalCents'] ?? data['totalSavedCents']);
+  final dailySavingTotal = _toInt(data['dailySavingTotalCents']);
+  final depositTotal = _toInt(data['depositTotalCents']);
   final totalWalletDays = daily.fold<int>(
     0,
     (sum, row) => sum + _toInt(row['savedWalletCount']),
@@ -180,8 +195,13 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
         ),
         pw.SizedBox(height: 14),
         pw.Text(
-          'Total: ${MoneyEtb.formatCents(totalSaved)}',
+          'Total (Saving + Deposit): ${MoneyEtb.formatCents(totalSaved)}',
           style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 4),
+        pw.Text(
+          'Saving: ${MoneyEtb.formatCents(dailySavingTotal)} · Deposit: ${MoneyEtb.formatCents(depositTotal)}',
+          style: const pw.TextStyle(fontSize: 10),
         ),
         pw.SizedBox(height: 4),
         pw.Text(
@@ -199,14 +219,20 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
             context: context,
             headers: const [
               'Day',
-              'Total',
+              'Total (S+D)',
+              'Saving',
+              'Deposit',
               'Wallets',
             ],
             data: daily
                 .map(
                   (r) => [
                     '${r['txDay'] ?? ''}',
-                    MoneyEtb.formatCents(_toInt(r['totalSavedCents'])),
+                    MoneyEtb.formatCents(
+                      _toInt(r['combinedTotalCents'] ?? r['totalSavedCents']),
+                    ),
+                    MoneyEtb.formatCents(_toInt(r['dailySavingTotalCents'])),
+                    MoneyEtb.formatCents(_toInt(r['depositTotalCents'])),
                     '${r['savedWalletCount'] ?? 0}',
                   ],
                 )
@@ -214,6 +240,8 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
               ..add(<String>[
                 'TOTAL',
                 MoneyEtb.formatCents(totalSaved),
+                MoneyEtb.formatCents(dailySavingTotal),
+                MoneyEtb.formatCents(depositTotal),
                 '$totalWalletDays',
               ]),
             headerStyle: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
@@ -223,6 +251,8 @@ Future<Uint8List> buildMonthlySavingsReportPdf({
             cellAlignments: {
               1: pw.Alignment.centerRight,
               2: pw.Alignment.centerRight,
+              3: pw.Alignment.centerRight,
+              4: pw.Alignment.centerRight,
             },
           ),
       ],
